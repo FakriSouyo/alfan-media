@@ -10,6 +10,7 @@ import {
   PackagePlus,
   PackageSearch,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -41,8 +42,14 @@ import {
 import { StreamingResponse } from "@/components/agents/streaming-response";
 import { ThinkingShimmer } from "@/components/agents/loading-states/thinking-shimmer";
 import { TodoList, type TodoItem } from "@/components/agents/todo-list";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useAuth } from "@/lib/auth-context";
 import { useStore } from "@/lib/store-context";
+import {
+  clearChatHistory,
+  loadChatHistory,
+  saveChatHistory,
+} from "@/lib/agent/chat-storage";
 import { cn } from "@/lib/utils";
 import {
   streamAgentPost,
@@ -58,7 +65,7 @@ import { AgentMarkdown } from "./markdown";
 
 // ─── Local message model ─────────────────────────────────────────────────────
 
-interface ChatMessage {
+export interface ChatMessage {
   id: string;
   role: "user" | "agent";
   /** Narasi SEBELUM kartu terstruktur (dikomit saat blok/approval pertama tiba). */
@@ -266,11 +273,20 @@ export function AgentChat() {
   // Agent menulis DB dari sisi server — muat ulang store lokal begitu satu
   // turunan berakhir agar halaman (stok, produk, pesanan) tidak basi.
   const { refresh } = useStore();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Riwayat chat dipersist ke localStorage (tanpa DB): dimuat saat mount,
+  // auto-expiry 7 hari ditangani di loader. Lihat chat-storage.ts.
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatHistory());
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
   const historyRef = useRef<HistoryContext | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Persist riwayat saat turunan selesai (busy=false) — bukan per-delta,
+  // supaya tidak menulis localStorage pada tiap token streaming.
+  useEffect(() => {
+    if (!busy && messages.length > 0) saveChatHistory(messages);
+  }, [busy, messages]);
 
   // ── Model picker: single source of truth = GET /api/agent/providers ──
   const [pickerOptions, setPickerOptions] = useState<PickerOption[] | null>(null);
@@ -599,7 +615,18 @@ export function AgentChat() {
             </span>
           </div>
         </div>
-        <span
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setClearOpen(true)}
+            disabled={messages.length === 0}
+            title="Lupakan riwayat chat"
+            aria-label="Lupakan riwayat chat"
+            className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+          <span
           title={
             aiStatus === "connected"
               ? "AI aktif — model dipilih di kolom chat"
@@ -627,7 +654,8 @@ export function AgentChat() {
             : aiStatus === "disconnected"
               ? "Terputus"
               : "Memuat…"}
-        </span>
+          </span>
+        </div>
       </header>
 
       {/* Transcript */}
@@ -717,6 +745,23 @@ export function AgentChat() {
             />
           </div>
         </div>
+
+        {/* Hapus riwayat manual (auto-expiry 7 hari tetap berjalan) */}
+        <ConfirmDialog
+          open={clearOpen}
+          title="Lupakan Riwayat Chat"
+          description="Seluruh riwayat percakapan di browser ini akan dihapus permanen. Data toko tidak terpengaruh."
+          confirmLabel="Lupakan"
+          destructive
+          onConfirm={() => {
+            clearChatHistory();
+            setMessages([]);
+            setClearOpen(false);
+          }}
+          onOpenChange={(o) => {
+            if (!o) setClearOpen(false);
+          }}
+        />
     </div>
   );
 }
