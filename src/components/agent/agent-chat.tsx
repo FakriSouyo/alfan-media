@@ -633,8 +633,8 @@ export function AgentChat() {
           )}
         </MessageScroller>
 
-        {/* Composer */}
-        <div className="shrink-0 border-t border-border px-4 pb-3 pt-2">
+        {/* Composer (tanpa garis pembatas — area input dibuat sedikit lebih lega) */}
+        <div className="shrink-0 px-4 pb-4 pt-3">
           <div className="mx-auto w-full max-w-3xl">
             {pickerOptions && pickerOptions.length === 0 && !pickerError ? (
               <div className="mb-2 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-[12.5px] text-amber-700 dark:text-amber-300">
@@ -680,7 +680,7 @@ export function AgentChat() {
                 pickerOptions !== null &&
                 (pickerOptions.length === 0 || Boolean(pickerError))
               }
-              minRows={1}
+              minRows={2}
               maxRows={6}
               placeholder="Tanyakan penjualan, stok, atau minta aksi… (Enter untuk kirim)"
               className="w-full"
