@@ -42,6 +42,12 @@ export interface ProductView {
   prices: { tierName: string; price: number; isDefault: boolean }[];
 }
 
+/** Rak = mapel + kelas: "Matematika" atau "Matematika (SMA I)". */
+function categoryLabel(c?: CategoryRow): string | undefined {
+  if (!c) return undefined;
+  return c.level ? `${c.name} (${c.level})` : c.name;
+}
+
 function toView(p: ProductRow, prices: ProductPriceRow[], category?: CategoryRow): ProductView {
   const defaultPrice =
     prices.find((x) => x.is_default)?.price ??
@@ -51,7 +57,7 @@ function toView(p: ProductRow, prices: ProductPriceRow[], category?: CategoryRow
   return {
     id: p.id,
     name: p.name,
-    category: category?.name,
+    category: categoryLabel(category),
     barcode: p.barcode,
     description: p.description,
     publishedYear: p.published_year ?? 0,
@@ -129,7 +135,7 @@ export async function runSearchProducts(
     if (catIds.length) {
       const { data: catRows, error: catError } = await ctx.supabase
         .from("categories")
-        .select("id, name")
+        .select("id, name, level")
         .in("id", catIds);
       if (catError) throw new Error(catError.message);
       categories = (catRows ?? []) as CategoryRow[];
@@ -153,7 +159,7 @@ export async function runSearchProducts(
         }
       }
     }
-    const catById = new Map(categories.map((c) => [c.id, c.name]));
+    const catById = new Map(categories.map((c) => [c.id, categoryLabel(c)]));
     return {
       ok: true,
       data: {
@@ -195,18 +201,22 @@ export async function runCreateProduct(
   if (!v.ok) return { ok: false, code: "VALIDATION", message: v.errors[0].message };
   const p = v.value as CreateProductParams;
   try {
-    // Resolve the category by id; fall back to name lookup, creating the
-    // category when it doesn't exist yet (disclosed via `categoryCreated`).
+    // Resolve rak (kategori) per id; fallback nama+kelas. Rak LKS = mapel +
+    // kelas — mapel yang sama bisa punya banyak kategori beda kelas.
     let categoryId: string | null = p.categoryId ?? null;
     let categoryCreated = false;
     if (!categoryId && p.category) {
-      const existing = await fetchCategoryByName(ctx.supabase, p.category);
+      const existing = await fetchCategoryByName(ctx.supabase, p.category, p.level);
       if (existing) {
         categoryId = existing.id;
       } else {
         const { data: created, error: createError } = await ctx.supabase
           .from("categories")
-          .insert({ name: p.category, description: "" })
+          .insert({
+            name: p.category,
+            description: "",
+            ...(p.level ? { level: p.level } : {}),
+          })
           .select("id, name")
           .single();
         if (createError) {

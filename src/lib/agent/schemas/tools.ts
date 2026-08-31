@@ -40,12 +40,20 @@ export function validateSearchProducts(p: unknown): ValidateResult<SearchProduct
   return { ok: true, value: { query: o.query.trim(), limit } };
 }
 
+/**
+ * Rak kelas: jenjang polos (rak lama, mis. "SMA") atau jenjang+kelas romawi
+ * (SD I–VI, SMP I–III dengan I=VII, SMA I–III dengan I=X).
+ */
+export const CATEGORY_LEVEL_RE = /^(SD|SMP|SMA)( I| II| III| IV| V| VI)?$/;
+
 export interface CreateProductParams {
   name: string;
   /** Resolved category id, preferred. */
   categoryId?: string;
-  /** Category name — resolved (or created) by the tool. */
+  /** Category name (mapel) — resolved (or created) by the tool. */
   category?: string;
+  /** Kelas/rak (mis. "SMA I" = kelas X). Dipakai memilih/membuat rak. */
+  level?: string;
   barcode: string;
   sellingPrice: number;
   description: string;
@@ -63,6 +71,10 @@ export function validateCreateProduct(p: unknown): ValidateResult<CreateProductP
   if (!hasCategoryId && !hasCategoryName) {
     errors.push({ field: "category", message: "kategori wajib diisi (id atau nama)" });
   }
+  const level = isNonEmptyString(o.level, 12) ? String(o.level).trim() : undefined;
+  if (o.level != null && !CATEGORY_LEVEL_RE.test(level ?? "")) {
+    errors.push({ field: "level", message: 'level harus jenjang "SD/SMP/SMA" opsional + kelas romawi (mis. "SMA I")' });
+  }
   if (!isBarcode(o.barcode)) errors.push({ field: "barcode", message: "barcode harus 12–14 digit angka" });
   if (!isPrice(o.sellingPrice)) errors.push({ field: "sellingPrice", message: "harga jual tidak valid" });
   if (o.description != null && !isStringMax(o.description, 2000))
@@ -77,6 +89,7 @@ export function validateCreateProduct(p: unknown): ValidateResult<CreateProductP
       name: String(o.name).trim(),
       categoryId: hasCategoryId ? (o.categoryId as string) : undefined,
       category: hasCategoryName ? String(o.category).trim() : undefined,
+      level,
       barcode: String(o.barcode).trim(),
       sellingPrice: o.sellingPrice as number,
       description: isNonEmptyString(o.description, 2000) ? String(o.description).trim() : "",

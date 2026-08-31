@@ -151,17 +151,31 @@ export function previousPeriod(period: PeriodSpec): PeriodSpec {
 
 // ─── Lookups ─────────────────────────────────────────────────────────────────
 
+/**
+ * Cari kategori (rak) per nama — opsional per kelas (`level`).
+ * Rak LKS = mapel + kelas, jadi mapel yang sama bisa punya beberapa
+ * kategori (Matematika [SMP I], Matematika [SMA I], ...).
+ * Tanpa level: 1 cocok → dipakai; 0 → null; >1 (beberapa kelas) → null,
+ * dipanggilan memutuskan (bikin generik / tanyakan kelasnya).
+ */
 export async function fetchCategoryByName(
   supabase: SupabaseClient,
   name: string,
+  level?: string,
 ): Promise<CategoryRow | null> {
-  const { data, error } = await supabase
+  const q = supabase
     .from("categories")
     .select("id, name, level, description, created_at, updated_at")
-    .ilike("name", name)
-    .maybeSingle();
+    .ilike("name", name);
+  if (level) {
+    const { data, error } = await q.eq("level", level).maybeSingle();
+    if (error) throw new Error("category lookup failed");
+    return (data as CategoryRow | null) ?? null;
+  }
+  const { data, error } = await q;
   if (error) throw new Error("category lookup failed");
-  return (data as CategoryRow | null) ?? null;
+  const rows = (data ?? []) as CategoryRow[];
+  return rows.length === 1 ? rows[0] : null;
 }
 
 export async function fetchCategories(

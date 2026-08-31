@@ -87,7 +87,8 @@ describe("tools: products", () => {
     if (!res.ok) return;
     expect(res.data.name).toBe("Algebra X");
     expect(res.data.defaultPrice).toBe(50000);
-    expect(res.data.category).toBe("Matematika");
+    // Kategori tampil sebagai rak: nama + kelas
+    expect(res.data.category).toBe("Matematika (SMA)");
     expect(res.data.stock).toBe(10);
   });
 
@@ -173,6 +174,58 @@ describe("tools: products", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.code).toBe("VALIDATION");
     expect(mock.tables["products"].length).toBe(before);
+  });
+
+  // ── Konvensi rak LKS: kategori = mapel, level = kelas ──
+
+  it("runCreateProduct: level mencocokkan rak existing (mapel+kelas)", async () => {
+    const { ctx } = makeCtx();
+    // c1 = "Matematika" level "SMA" — level "SMA" harus memakai rak itu.
+    const res = await runCreateProduct(
+      { name: "Matematika SMA Kelas X Semester 1 — Kurikulum Merdeka (Erlangga)", category: "Matematika", level: "SMA", barcode: "8991234567891", sellingPrice: 60000, description: "", publishedYear: 2026, semester: "Ganjil", stock: 0 },
+      ctx,
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.categoryCreated).toBe(false);
+  });
+
+  it("runCreateProduct: rak baru dibuat otomatis dengan level", async () => {
+    const { ctx, mock } = makeCtx();
+    const res = await runCreateProduct(
+      { name: "Biologi SMP Kelas VII Semester 1 — Kurikulum Merdeka (Mediatama)", category: "Biologi", level: "SMP I", barcode: "8991234567892", sellingPrice: 40000, description: "", publishedYear: 2026, semester: "Ganjil", stock: 0 },
+      ctx,
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.categoryCreated).toBe(true);
+    const cat = mock.tables["categories"].find((c) => c.name === "Biologi");
+    expect(cat?.level).toBe("SMP I");
+  });
+
+  it("runCreateProduct: mapel sama beda kelas → rak terpisah (bukan rak lama)", async () => {
+    const { ctx, mock } = makeCtx();
+    // c1 sudah "Matematika" (SMA); "SMP I" harus bikin rak BARU.
+    const res = await runCreateProduct(
+      { name: "Matematika SMP Kelas VII Semester 1 — K-13 (Erlangga)", category: "Matematika", level: "SMP I", barcode: "8991234567893", sellingPrice: 35000, description: "", publishedYear: 2026, semester: "Ganjil", stock: 0 },
+      ctx,
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.categoryCreated).toBe(true);
+    const cats = mock.tables["categories"].filter((c) => c.name === "Matematika");
+    expect(cats).toHaveLength(2);
+    expect(cats.map((c) => c.level).sort()).toEqual(["SMA", "SMP I"]);
+  });
+
+  it("runCreateProduct: level invalid → VALIDATION", async () => {
+    const { ctx } = makeCtx();
+    const res = await runCreateProduct(
+      { name: "X", category: "Matematika", level: "Kelas X", barcode: "8991234567894", sellingPrice: 1000, description: "", publishedYear: 2026, semester: "Ganjil", stock: 1 },
+      ctx,
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("VALIDATION");
   });
 
   it("runUpdateProduct: harga tier default", async () => {

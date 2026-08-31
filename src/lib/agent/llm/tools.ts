@@ -195,12 +195,30 @@ export const TOOL_DEFS: LlmToolDef[] = [
     function: {
       name: "create_product",
       description:
-        "Buat produk baru lengkap dengan harga jual (tier Normal) dan stok awal. WAJIB tanyakan ke pengguna semua info yang belum ada (nama, kategori, barcode, harga jual, stok) sebelum memanggil tool ini.",
+        "Buat produk baru lengkap dengan harga jual (tier Normal) dan stok awal. WAJIB tanyakan ke pengguna semua info yang belum ada (nama, kategori, kelas, barcode, harga jual, stok) sebelum memanggil tool ini. Konvensi rak LKS: kategori = mapel, level = kelas, nama = judul lengkap yang membedakan buku di rak yang sama.",
       parameters: {
         type: "object",
         properties: {
-          name: { type: "string" },
-          category: { type: "string", description: "Nama kategori (dibuat otomatis jika belum ada)." },
+          name: {
+            type: "string",
+            description:
+              "Judul lengkap buku — harus Membedakan dari buku lain di rak yang sama (sertakan penerbit/kurikulum/edisi bila perlu). JANGAN hanya mengulang nama kategori. Mis: 'Matematika SMA Kelas X Semester 1 — Kurikulum Merdeka (Erlangga)' untuk kategori 'Matematika' level 'SMA I'.",
+          },
+          category: {
+            type: "string",
+            description: "Nama mapel/rak (mis. 'Matematika'). Kelas tidak ditulis di sini — pakai parameter level. Dibuat otomatis jika belum ada.",
+          },
+          level: {
+            type: "string",
+            enum: [
+              "SD", "SMP", "SMA",
+              "SD I", "SD II", "SD III", "SD IV", "SD V", "SD VI",
+              "SMP I", "SMP II", "SMP III",
+              "SMA I", "SMA II", "SMA III",
+            ],
+            description:
+              "Kelas buku (rak). Peta romawi: SMP I=VII, II=VIII, III=IX; SMA I=X, II=XI, III=XII. Ikuti format rak yang sudah ada di toko (lihat hasil search, mis. 'Matematika (SMA)' → level 'SMA'); rak baru pakai jenjang+kelas. WAJIB bila bukunya punya kelas; tanyakan dulu bila belum jelas.",
+          },
           barcode: { type: "string", description: "12–14 digit angka." },
           sellingPrice: { type: "integer", description: "Harga jual dalam Rupiah (angka penuh, mis. 50000)." },
           stock: { type: "integer", minimum: 0, description: "Stok awal." },

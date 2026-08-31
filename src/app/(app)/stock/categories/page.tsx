@@ -140,6 +140,11 @@ export default function CategoriesPage() {
               <div>
                 <label className="mb-1 block text-[12px] font-medium text-foreground">Nama Kategori *</label>
                 <input value={name} onChange={(e) => { setName(e.target.value); setError(""); }} className="h-8 w-full rounded-lg border border-border bg-background px-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring" />
+                {!error && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Mata pelajaran saja — kelas dipilih di samping. cth: nama "Matematika" + jenjang SMA + kelas I = rak Matematika Kelas X.
+                  </p>
+                )}
                 {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
               </div>
 

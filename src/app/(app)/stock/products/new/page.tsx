@@ -58,6 +58,19 @@ export default function NewProductPage() {
   const validate = (): boolean => {
     const e: Record<string, string> = {};
     if (!name.trim()) e.name = "Nama produk wajib diisi";
+    else {
+      // Nama harus MEMBEDAKAN buku di rak yang sama — bukan ulangan kategori.
+      const cat = categories.find((c) => c.id === categoryId);
+      if (cat) {
+        const n = name.trim().toLowerCase();
+        const sameAsCat =
+          n === cat.name.toLowerCase() ||
+          n === `${cat.name} ${cat.level ?? ""}`.trim().toLowerCase();
+        if (sameAsCat) {
+          e.name = "Nama terlalu umum (hanya mengulang kategori). Tambahkan penerbit/kurikulum/edisi, mis: 'Matematika SMA Kelas X — Kurikulum Merdeka (Erlangga)'.";
+        }
+      }
+    }
     if (!categoryId) e.categoryId = "Kategori wajib dipilih";
     if (!barcode.trim()) e.barcode = "Barcode wajib diisi";
     else if (products.some((p) => p.barcode === barcode.trim())) e.barcode = "Barcode sudah digunakan";
@@ -95,8 +108,17 @@ export default function NewProductPage() {
 
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label="Nama Produk *" error={errors.name}>
-              <input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+            <Field
+              label="Nama Produk *"
+              error={errors.name}
+              hint="Judul lengkap yang membedakan buku di rak yang sama — sertakan penerbit/kurikulum/edisi bila perlu. cth: 'Matematika SMA Kelas X Semester 1 — Kurikulum Merdeka (Erlangga)'."
+            >
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="cth: Matematika SMA Kelas X Semester 1 — Kurikulum Merdeka (Erlangga)"
+                className={inputClass}
+              />
             </Field>
 
             <Field label="Barcode Produk *" error={errors.barcode}>
@@ -105,7 +127,11 @@ export default function NewProductPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <Field label="Kategori Produk *" error={errors.categoryId}>
+            <Field
+              label="Kategori Produk *"
+              error={errors.categoryId}
+              hint="Rak buku = mapel + kelas. cth: Matematika [SMA I] = Matematika Kelas X. Jika belum ada, buat dulu di menu Kategori."
+            >
               <Select value={categoryId} onValueChange={setCategoryId}>
                 <SelectTrigger icon={Tags} placeholder="Pilih kategori" className="w-full" error={errors.categoryId} />
                 <SelectContent>
@@ -188,12 +214,26 @@ export default function NewProductPage() {
   );
 }
 
-function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
+function Field({
+  label,
+  error,
+  hint,
+  children,
+}: {
+  label: string;
+  error?: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
       <label className="mb-1 block text-[12px] font-medium text-foreground">{label}</label>
       {children}
-      {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
+      {error ? (
+        <p className="mt-1 text-[11px] text-destructive">{error}</p>
+      ) : hint ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>
+      ) : null}
     </div>
   );
 }
