@@ -229,9 +229,16 @@ export default function NewSalePage() {
         penerima: deliveryForm.penerima.trim() || customerName.trim() || "Pelanggan",
       },
     });
-    if (order) {
-      router.push(`/sales/orders/${order.id}`);
+    if (!order) {
+      alert("Gagal membuat pesanan. Periksa kembali data pesanan.");
+      return;
     }
+    if (order.status === "DRAFT") {
+      // Stok tak cukup saat disimpan → store menurunkan jadi DRAFT.
+      alert(`Stok tidak mencukupi — pesanan disimpan sebagai DRAFT (${order.id}). Tambah stok, lalu proses dari daftar Pesanan.`);
+      return;
+    }
+    router.push(`/sales/orders/${order.id}`);
   };
 
   const handleSaveDraft = async () => {

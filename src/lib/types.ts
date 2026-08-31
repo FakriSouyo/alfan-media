@@ -81,6 +81,8 @@ export interface Order {
   discount: number;
   total: number;
   status: OrderStatus;
+  /** Diarsipkan: tersembunyi dari daftar; data (stok, laporan) tetap utuh. */
+  archived?: boolean;
   suratJalan?: SuratJalan;
   revisions: OrderRevision[];
   createdAt: string;

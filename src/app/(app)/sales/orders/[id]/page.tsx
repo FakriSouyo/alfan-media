@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
 import { PageHeader } from "@/components/page-header";
 import { CategoryName } from "@/components/category-label";
-import { ArrowLeft, Printer, XCircle, FileText, CheckCircle2, Edit3 } from "lucide-react";
+import { ArrowLeft, Printer, XCircle, FileText, CheckCircle2, Edit3, ShoppingCart, Archive } from "lucide-react";
 import { printSuratJalan } from "@/lib/surat-jalan";
 import { printThermalNota } from "@/lib/nota-thermal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -23,10 +23,12 @@ import {
 
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { orders, products, categories, cancelOrder, completeOrder, updateSuratJalan } = useStore();
+  const { orders, products, categories, cancelOrder, completeOrder, checkoutOrder, archiveOrder, updateSuratJalan } = useStore();
   const order = orders.find((o) => o.id === id);
   const [sjOpen, setSjOpen] = useState(false);
   const [completeOpen, setCompleteOpen] = useState(false);
+  const [processOpen, setProcessOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [sjForm, setSjForm] = useState<SuratJalan>({
     no: "",
@@ -94,12 +96,36 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         description={`${order.date} · ${order.customerName}`}
         actions={
           <div className="flex flex-wrap gap-2">
+            {order.status === "DRAFT" && (
+              <button
+                onClick={() => setProcessOpen(true)}
+                className="flex items-center gap-1 rounded-lg border border-blue-500/30 px-3 py-1.5 text-[13px] font-medium text-blue-500 hover:bg-blue-500/10"
+              >
+                <ShoppingCart size={14} /> Proses Pesanan
+              </button>
+            )}
             {order.status === "CHECKED_OUT" && (
               <button
                 onClick={() => setCompleteOpen(true)}
                 className="flex items-center gap-1 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-[13px] font-medium text-emerald-500 hover:bg-emerald-500/10"
               >
                 <CheckCircle2 size={14} /> Tandai Selesai
+              </button>
+            )}
+            {order.status === "COMPLETED" && !order.archived && (
+              <button
+                onClick={() => setArchiveOpen(true)}
+                className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04]"
+              >
+                <Archive size={14} /> Arsipkan
+              </button>
+            )}
+            {order.status === "COMPLETED" && order.archived && (
+              <button
+                onClick={() => archiveOrder(order.id, false)}
+                className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04]"
+              >
+                <Archive size={14} /> Pulihkan dari Arsip
               </button>
             )}
             {(order.status === "CHECKED_OUT" || order.status === "COMPLETED") && (
@@ -117,7 +143,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 </button>
               </>
             )}
-            {order.status !== "CANCELLED" && order.status !== "DRAFT" && (
+            {/* Batalkan hanya untuk CHECKED_OUT: COMPLETED bersifat final. */}
+            {order.status === "CHECKED_OUT" && (
               <button onClick={() => setCancelOpen(true)} className="flex items-center gap-1 rounded-lg border border-destructive/30 px-3 py-1.5 text-[13px] text-destructive hover:bg-destructive/10">
                 <XCircle size={14} /> Batalkan
               </button>
@@ -131,6 +158,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         <span className={`inline-block rounded-full px-2.5 py-1 text-[12px] font-medium ${statusColor[order.status]}`}>
           {statusLabel[order.status]}
         </span>
+        {order.archived && (
+          <span className="ml-2 inline-block rounded-full bg-foreground/[0.07] px-2.5 py-1 text-[12px] font-medium text-muted-foreground">
+            Diarsipkan
+          </span>
+        )}
       </div>
 
       {/* Items */}
@@ -283,11 +315,24 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         </DialogContent>
       </Dialog>
 
+      {/* Konfirmasi proses draft (stok dipotong di sini) */}
+      <ConfirmDialog
+        open={processOpen}
+        title="Proses Pesanan"
+        description={`Mulai proses pesanan ${order.id}? Stok produk akan dipotong sekarang.`}
+        confirmLabel="Proses"
+        onConfirm={async () => {
+          const ok = await checkoutOrder(order.id);
+          if (!ok) alert("Gagal memproses: stok produk tidak cukup. Tambah stok dulu.");
+        }}
+        onOpenChange={setProcessOpen}
+      />
+
       {/* Konfirmasi selesaikan pesanan */}
       <ConfirmDialog
         open={completeOpen}
         title="Tandai Pesanan Selesai"
-        description={`Tandai pesanan ${order.id} selesai? Stok produk akan dikurangi.`}
+        description={`Tandai pesanan ${order.id} selesai? Setelah selesai, pesanan bersifat final (tidak dapat dibatalkan).`}
         confirmLabel="Selesaikan"
         onConfirm={async () => {
           const ok = await completeOrder(order.id);
@@ -296,18 +341,27 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         onOpenChange={setCompleteOpen}
       />
 
-      {/* Konfirmasi batalkan pesanan */}
+      {/* Konfirmasi arsipkan pesanan */}
+      <ConfirmDialog
+        open={archiveOpen}
+        title="Arsipkan Pesanan"
+        description={`Pesanan ${order.id} akan tersembunyi dari daftar. Data (stok & total penjualan) tetap utuh.`}
+        confirmLabel="Arsipkan"
+        onConfirm={() => archiveOrder(order.id, true)}
+        onOpenChange={setArchiveOpen}
+      />
+
+      {/* Konfirmasi batalkan pesanan (hanya CHECKED_OUT) */}
       <ConfirmDialog
         open={cancelOpen}
         title="Batalkan Pesanan"
-        description={
-          order.status === "COMPLETED"
-            ? `Batalkan pesanan ${order.id}? Stok yang sudah terjual akan dikembalikan.`
-            : `Batalkan pesanan ${order.id}? Pesanan tidak dapat dikembalikan ke status aktif.`
-        }
+        description={`Batalkan pesanan ${order.id}? Stok yang sudah dipotong akan dikembalikan.`}
         confirmLabel="Batalkan Pesanan"
         destructive
-        onConfirm={() => cancelOrder(order.id)}
+        onConfirm={async () => {
+          const ok = await cancelOrder(order.id);
+          if (!ok) alert("Pesanan tidak dapat dibatalkan.");
+        }}
         onOpenChange={setCancelOpen}
       />
     </div>

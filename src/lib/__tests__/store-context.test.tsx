@@ -6,7 +6,9 @@
  *   - pelanggan: tambah
  *   - pesanan: invoice (RPC + fallback), tambah order + items + surat jalan,
  *     updateOrder, updateSuratJalan (insert lalu update),
- *     completeOrder (SALE movement), cancelOrder (RETURN movement), adjustStock
+ *     alur DRAFT →(checkoutOrder, SALE movement)→ CHECKED_OUT →
+ *     (completeOrder)→ COMPLETED (final), cancelOrder (RETURN bila terpotong),
+ *     archiveOrder, adjustStock
  *
  * Strategi: mount StoreProvider SEKALI (beforeAll), lalu antar-test DB mock
  * di-reset + refresh() supaya state konsisten. Ini menghindari masalah
@@ -339,16 +341,108 @@ describe("Transisi status & stok", () => {
     expect(afterSecond).toBe(afterFirst);
   });
 
-  it("cancelOrder pada COMPLETED: movement RETURN & status CANCELLED", async () => {
-    await actAsync(() => S().completeOrder("INV-001"));
-    await actAsync(() => S().cancelOrder("INV-001"));
-    const rets = sb.calls
-      .filter((c) => c.op === "insert" && c.table === "stock_movements")
-      .map((c) => (c.args as Row[])[0].type);
-    expect(rets).toContain("SALE");
-    expect(rets).toContain("RETURN");
-    const o = S().orders.find((x) => x.id === "INV-001");
-    expect(o!.status).toBe("CANCELLED");
+  // ── Alur baru: DRAFT →(proses, stok terpotong)→ CHECKED_OUT →(selesai, final)→ COMPLETED ──
+
+  // Helper: suntik pesanan (status bebas) langsung ke mock + sinkronkan state.
+  async function seedOrder(
+    invoice: string,
+    status: "DRAFT" | "CHECKED_OUT",
+    qty: number,
+    uuidSuffix: string,
+  ) {
+    const oid = "55555555-5555-4555-8555-" + uuidSuffix;
+    const iid = "66666666-6666-4666-8666-" + uuidSuffix;
+    sb.tables["orders"].push({ id: oid, invoice_no: invoice, order_date: "2026-08-27", customer_id: null, customer_name: "T", subtotal: qty * 50000, discount: 0, total: qty * 50000, status, notes: null, created_by: null, created_at: "2026-08-27", updated_at: "2026-08-27" });
+    sb.tables["order_items"].push({ id: iid, order_id: oid, product_id: ID.p1, product_name: "Algebra X", product_barcode: "BC1", quantity: qty, unit_price: 50000, price_tier: "Normal", custom_price: null, discount_percent: 0, subtotal: qty * 50000, created_at: "2026-08-27" });
+    await actAsync(() => S().refresh());
+  }
+
+  it("checkoutOrder: DRAFT → CHECKED_OUT + movement SALE (stok terpotong saat proses)", async () => {
+    await seedOrder("INV-101", "DRAFT", 1, "a1a1a1a1a1a1");
+    const ok = await actAsync(() => S().checkoutOrder("INV-101"));
+    expect(ok).toBe(true);
+    expect(S().orders.find((x) => x.id === "INV-101")!.status).toBe("CHECKED_OUT");
+    const sales = sb.calls.filter(
+      (c) => c.op === "insert" && c.table === "stock_movements" && (c.args as Row[])[0].reference === "INV-101",
+    );
+    expect(sales).toHaveLength(1);
+    expect((sales[0].args as Row[])[0].type).toBe("SALE");
+    expect((sales[0].args as Row[])[0].quantity).toBe(-1);
+  });
+
+  it("checkoutOrder: stok kurang → false, tetap DRAFT, tanpa movement", async () => {
+    await seedOrder("INV-102", "DRAFT", 99, "b2b2b2b2b2b2");
+    const ok = await actAsync(() => S().checkoutOrder("INV-102"));
+    expect(ok).toBe(false);
+    expect(S().orders.find((x) => x.id === "INV-102")!.status).toBe("DRAFT");
+    const movs = sb.calls.filter(
+      (c) => c.op === "insert" && c.table === "stock_movements" && (c.args as Row[])[0].reference === "INV-102",
+    );
+    expect(movs).toHaveLength(0);
+  });
+
+  it("cancelOrder pada CHECKED_OUT (stok sudah terpotong): RETURN + CANCELLED", async () => {
+    await seedOrder("INV-103", "DRAFT", 1, "c3c3c3c3c3c3");
+    await actAsync(() => S().checkoutOrder("INV-103")); // → CHECKED_OUT + SALE
+    const ok = await actAsync(() => S().cancelOrder("INV-103"));
+    expect(ok).toBe(true);
+    expect(S().orders.find((x) => x.id === "INV-103")!.status).toBe("CANCELLED");
+    const rets = sb.calls.filter(
+      (c) => c.op === "insert" && c.table === "stock_movements" && (c.args as Row[])[0].reference === "INV-103" && (c.args as Row[])[0].type === "RETURN",
+    );
+    expect(rets).toHaveLength(1);
+    expect((rets[0].args as Row[])[0].quantity).toBe(1);
+  });
+
+  it("cancelOrder pada COMPLETED ditolak: final, tanpa movement, status utuh", async () => {
+    await actAsync(() => S().completeOrder("INV-001")); // → COMPLETED
+    const ok = await actAsync(() => S().cancelOrder("INV-001"));
+    expect(ok).toBe(false);
+    expect(S().orders.find((x) => x.id === "INV-001")!.status).toBe("COMPLETED");
+    const rets = sb.calls.filter(
+      (c) => c.op === "insert" && c.table === "stock_movements" && (c.args as Row[])[0].type === "RETURN",
+    );
+    expect(rets).toHaveLength(0);
+  });
+
+  it("addOrder CHECKED_OUT: stok terpotong saat order dibuat", async () => {
+    const res = await actAsync(() =>
+      S().addOrder({
+        date: "2026-08-27", customerId: null, customerName: "T",
+        items: [{ id: "n1", productId: ID.p1, productName: "Algebra X", productBarcode: "BC1", quantity: 2, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 100000 }],
+        subtotal: 100000, discount: 0, total: 100000, status: "CHECKED_OUT",
+      }),
+    );
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe("CHECKED_OUT");
+    const sales = sb.calls.filter(
+      (c) => c.op === "insert" && c.table === "stock_movements" && (c.args as Row[])[0].type === "SALE",
+    );
+    expect(sales).toHaveLength(1);
+    expect((sales[0].args as Row[])[0].quantity).toBe(-2);
+  });
+
+  it("addOrder CHECKED_OUT stok kurang → order dikembalikan jadi DRAFT", async () => {
+    const res = await actAsync(() =>
+      S().addOrder({
+        date: "2026-08-27", customerId: null, customerName: "T",
+        items: [{ id: "n2", productId: ID.p1, productName: "Algebra X", productBarcode: "BC1", quantity: 99, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 4950000 }],
+        subtotal: 4950000, discount: 0, total: 4950000, status: "CHECKED_OUT",
+      }),
+    );
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe("DRAFT");
+    const sales = sb.calls.filter(
+      (c) => c.op === "insert" && c.table === "stock_movements" && (c.args as Row[])[0].type === "SALE",
+    );
+    expect(sales).toHaveLength(0);
+  });
+
+  it("archiveOrder: arsipkan tanpa mengubah status (data utuh)", async () => {
+    await actAsync(() => S().archiveOrder("INV-001", true));
+    const o = S().orders.find((x) => x.id === "INV-001")!;
+    expect(o.archived).toBe(true);
+    expect(o.status).toBe("CHECKED_OUT"); // status tidak berubah
   });
 
   it("adjustStock: movement ADJUSTMENT", async () => {

@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { Eye, ListFilter, FileText, CheckCircle2, Printer } from "lucide-react";
+import { Eye, ListFilter, FileText, CheckCircle2, Printer, ShoppingCart, Archive } from "lucide-react";
 import { printSuratJalan } from "@/lib/surat-jalan";
 import { printThermalNota } from "@/lib/nota-thermal";
 import {
@@ -17,17 +17,23 @@ import {
 } from "@/components/ui/select";
 
 export default function OrdersPage() {
-  const { orders, completeOrder } = useStore();
+  const { orders, completeOrder, checkoutOrder, archiveOrder } = useStore();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [showArchived, setShowArchived] = useState(false);
   const [completeTarget, setCompleteTarget] = useState<string | null>(null);
+  const [checkoutTarget, setCheckoutTarget] = useState<string | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
 
   const sorted = [...orders].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const filtered = sorted.filter((o) => {
-    const matchSearch = o.id.toLowerCase().includes(search.toLowerCase()) || o.customerName.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = statusFilter === "all" || o.status === statusFilter;
-    return matchSearch && matchStatus;
-  });
+  // Arsip tersembunyi kecuali di-toggle eksplisit (datanya tetap utuh di DB).
+  const filtered = sorted
+    .filter((o) => showArchived || !o.archived)
+    .filter((o) => {
+      const matchSearch = o.id.toLowerCase().includes(search.toLowerCase()) || o.customerName.toLowerCase().includes(search.toLowerCase());
+      const matchStatus = statusFilter === "all" || o.status === statusFilter;
+      return matchSearch && matchStatus;
+    });
 
   const statusColor: Record<string, string> = {
     COMPLETED: "bg-emerald-500/15 text-emerald-500",
@@ -64,6 +70,10 @@ export default function OrdersPage() {
             <SelectItem index={4} value="CANCELLED">Dibatalkan</SelectItem>
           </SelectContent>
         </Select>
+        <label className="flex h-8 cursor-pointer items-center gap-1.5 self-center text-[13px] text-muted-foreground">
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} className="size-3.5 accent-foreground" />
+          Tampilkan arsip
+        </label>
       </div>
 
       <div className="mt-3 rounded-xl border border-border bg-background">
@@ -95,9 +105,23 @@ export default function OrdersPage() {
                     <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${statusColor[o.status]}`}>
                       {statusLabel[o.status]}
                     </span>
+                    {o.archived && (
+                      <span className="ml-1 inline-block rounded-full bg-foreground/[0.07] px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        Arsip
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      {o.status === "DRAFT" && (
+                        <button
+                          onClick={() => setCheckoutTarget(o.id)}
+                          title="Mulai proses (stok terpotong)"
+                          className="flex items-center gap-1 rounded-md border border-blue-500/30 px-2 py-1 text-[11px] font-medium text-blue-500 hover:bg-blue-500/10"
+                        >
+                          <ShoppingCart size={12} /> <span className="hidden sm:inline">Proses</span>
+                        </button>
+                      )}
                       {o.status === "CHECKED_OUT" && (
                         <button
                           onClick={() => setCompleteTarget(o.id)}
@@ -105,6 +129,15 @@ export default function OrdersPage() {
                           className="flex items-center gap-1 rounded-md border border-emerald-500/30 px-2 py-1 text-[11px] font-medium text-emerald-500 hover:bg-emerald-500/10"
                         >
                           <CheckCircle2 size={12} /> <span className="hidden sm:inline">Selesai</span>
+                        </button>
+                      )}
+                      {o.status === "COMPLETED" && !o.archived && (
+                        <button
+                          onClick={() => setArchiveTarget(o.id)}
+                          title="Arsipkan (data tetap utuh)"
+                          className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
+                        >
+                          <Archive size={12} /> <span className="hidden sm:inline">Arsip</span>
                         </button>
                       )}
                       {(o.status === "CHECKED_OUT" || o.status === "COMPLETED") && (
@@ -141,7 +174,7 @@ export default function OrdersPage() {
       <ConfirmDialog
         open={completeTarget !== null}
         title="Tandai Pesanan Selesai"
-        description={completeTarget ? `Tandai pesanan ${completeTarget} selesai? Stok produk akan dikurangi.` : ""}
+        description={completeTarget ? `Tandai pesanan ${completeTarget} selesai? Setelah selesai, pesanan bersifat final (tidak dapat dibatalkan).` : ""}
         confirmLabel="Selesaikan"
         onConfirm={async () => {
           if (!completeTarget) return;
@@ -149,6 +182,28 @@ export default function OrdersPage() {
           if (!ok) alert("Gagal menyelesaikan: stok produk tidak cukup. Tambah stok dulu.");
         }}
         onOpenChange={(o) => { if (!o) setCompleteTarget(null); }}
+      />
+
+      <ConfirmDialog
+        open={checkoutTarget !== null}
+        title="Proses Pesanan"
+        description={checkoutTarget ? `Mulai proses pesanan ${checkoutTarget}? Stok produk akan dipotong sekarang.` : ""}
+        confirmLabel="Proses"
+        onConfirm={async () => {
+          if (!checkoutTarget) return;
+          const ok = await checkoutOrder(checkoutTarget);
+          if (!ok) alert("Gagal memproses: stok produk tidak cukup. Tambah stok dulu.");
+        }}
+        onOpenChange={(o) => { if (!o) setCheckoutTarget(null); }}
+      />
+
+      <ConfirmDialog
+        open={archiveTarget !== null}
+        title="Arsipkan Pesanan"
+        description={archiveTarget ? `Pesanan ${archiveTarget} akan tersembunyi dari daftar. Data (stok & total penjualan) tetap utuh.` : ""}
+        confirmLabel="Arsipkan"
+        onConfirm={() => { if (archiveTarget) archiveOrder(archiveTarget, true); }}
+        onOpenChange={(o) => { if (!o) setArchiveTarget(null); }}
       />
     </div>
   );

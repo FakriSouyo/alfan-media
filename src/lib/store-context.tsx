@@ -67,6 +67,7 @@ type OrderRow = {
   discount: number;
   total: number;
   status: "DRAFT" | "CHECKED_OUT" | "COMPLETED" | "CANCELLED";
+  archived?: boolean;
   notes: string | null;
   created_by: string | null;
   created_at: string;
@@ -162,6 +163,7 @@ const toOrder = (r: OrderRow, items: OrderItemRow[], sj?: SuratJalan): Order => 
   discount: r.discount,
   total: r.total,
   status: r.status,
+  archived: r.archived ?? false,
   // Surat jalan tersimpan per order — harus di-load di refresh() agar hasil
   // edit tampil lagi setelah navigasi/refresh.
   suratJalan: sj,
@@ -214,11 +216,23 @@ interface StoreValue {
   addOrder: (o: Omit<Order, "id" | "createdAt" | "updatedAt" | "revisions">) => Promise<Order | null>;
   updateOrder: (id: string, patch: Partial<Order>) => Promise<void>;
   updateSuratJalan: (id: string, data: Partial<SuratJalan>) => Promise<void>;
-  /** false = stok tidak cukup (anti-oversell), pesanan TIDAK diselesaikan. */
+  /**
+   * DRAFT → CHECKED_OUT ("masuk proses") — STOK TERPOTONG DI SINI.
+   * false = stok tidak cukup (anti-oversell), pesanan tetap DRAFT.
+   */
   checkoutOrder: (id: string) => Promise<boolean>;
-  /** false = stok tidak cukup (anti-oversell), pesanan TIDAK diselesaikan. */
+  /**
+   * CHECKED_OUT → COMPLETED (final). Stok sudah terpotong saat proses.
+   * false = stok tidak cukup (hanya pesanan legacy yang belum terpotong).
+   */
   completeOrder: (id: string) => Promise<boolean>;
-  cancelOrder: (id: string) => Promise<void>;
+  /**
+   * Batalkan: DRAFT (tanpa efek) / CHECKED_OUT (stok dikembalikan).
+   * COMPLETED bersifat FINAL → false. false juga bila pesanan tak ditemukan.
+   */
+  cancelOrder: (id: string) => Promise<boolean>;
+  /** Arsipkan/pulihkan: sembunyikan dari daftar, data (stok & laporan) utuh. */
+  archiveOrder: (id: string, archived: boolean) => Promise<void>;
   getNextInvoiceId: () => Promise<string>;
 
   // Stock
@@ -494,6 +508,65 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [supabase]
   );
 
+  // ─── Stock ─────────────────────────────────────────────────────────────
+  // Dipakai oleh addOrder (checkout walk-in), checkoutOrder (draft→proses),
+  // dan completeOrder (legacy).
+  // Mencatat stock_movements SALE & mengurangi stok. Trigger sync_product_stock
+  // di DB akan otomatis update products.stock.
+  // ANTI-OVERSELL: stok dicek dari DB sebelum movement SALE dicatat.
+  // Kurang → return false, TIDAK ADA pengurangan (parcial atau penuh).
+  const deductStockAndRecord = useCallback(
+    async (orderInvoiceNo: string): Promise<boolean> => {
+      const { data: order, error: findErr } = await supabase
+        .from("orders")
+        .select("id, items:order_items(*)")
+        .eq("invoice_no", orderInvoiceNo)
+        .single();
+      if (findErr || !order) return false;
+
+      const items = (order as unknown as { items: OrderItemRow[] }).items ?? [];
+      const productIds = [
+        ...new Set(items.map((i) => i.product_id).filter((x): x is string => Boolean(x))),
+      ];
+      if (productIds.length > 0) {
+        const { data: prodRows } = await supabase
+          .from("products")
+          .select("id, stock")
+          .in("id", productIds);
+        const stockOf = new Map<string, number>(
+          (prodRows ?? []).map((p: { id: string; stock: number }) => [p.id, p.stock]),
+        );
+        const short = items.filter(
+          (i) => !i.product_id || (stockOf.get(i.product_id) ?? 0) < i.quantity,
+        );
+        if (short.length > 0) {
+          console.error(
+            `[oversell] ${orderInvoiceNo}: ${short
+              .map(
+                (s) =>
+                  `${s.product_name} (stok ${s.product_id ? stockOf.get(s.product_id) ?? 0 : "?"} < ${s.quantity})`,
+              )
+              .join(", ")}`,
+          );
+          return false;
+        }
+      }
+
+      for (const item of items) {
+        if (!item.product_id) continue;
+        const { error } = await supabase.from("stock_movements").insert({
+          product_id: item.product_id,
+          type: "SALE",
+          quantity: -item.quantity,
+          reference: orderInvoiceNo,
+        });
+        if (error) return false;
+      }
+      return true;
+    },
+    [supabase]
+  );
+
   // ─── Orders ────────────────────────────────────────────────────────────
   const getNextInvoiceId = useCallback(async () => {
     const { data, error } = await supabase.rpc("next_invoice_no");
@@ -567,17 +640,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         });
       }
 
+      // Alur baru: stok TERPOTONG saat pesanan masuk proses (CHECKED_OUT).
+      // Checkout walk-in membuat order langsung CHECKED_OUT → potong di sini.
+      let finalStatus = o.status;
+      if (o.status === "CHECKED_OUT") {
+        const ok = await deductStockAndRecord(invoice);
+        if (!ok) {
+          // Stok tak cukup: jangan hilangkan pesanan — kembalikan jadi DRAFT.
+          console.error(`[oversell] ${invoice} ditolak, dikembalikan ke DRAFT`);
+          await supabase.from("orders").update({ status: "DRAFT" }).eq("invoice_no", invoice);
+          finalStatus = "DRAFT";
+        }
+      }
+
       await refresh();
       // Kembalikan Order dengan id = invoice_no (konsisten dengan store lama)
       return {
         ...o,
+        status: finalStatus,
         id: invoice,
         revisions: [],
         createdAt: orderRow.created_at,
         updatedAt: orderRow.updated_at,
       };
     },
-    [supabase, getNextInvoiceId, refresh]
+    [supabase, getNextInvoiceId, refresh, deductStockAndRecord]
   );
 
   const updateOrder = useCallback(
@@ -683,70 +770,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [supabase, refresh]
   );
 
-  // ─── Stock mutations + status transitions ─────────────────────────────
-  // Dipakai oleh checkoutOrder / completeOrder.
-  // Mencatat stock_movements SALE & mengurangi stok. Trigger sync_product_stock
-  // di DB akan otomatis update products.stock.
-  // ANTI-OVERSELL: stok dicek dari DB sebelum movement SALE dicatat.
-  // Kurang → return false, TIDAK ADA pengurangan (parcial atau penuh).
-  const deductStockAndRecord = useCallback(
-    async (orderInvoiceNo: string): Promise<boolean> => {
-      const { data: order, error: findErr } = await supabase
-        .from("orders")
-        .select("id, items:order_items(*)")
-        .eq("invoice_no", orderInvoiceNo)
-        .single();
-      if (findErr || !order) return false;
-
-      const items = (order as unknown as { items: OrderItemRow[] }).items ?? [];
-      const productIds = [
-        ...new Set(items.map((i) => i.product_id).filter((x): x is string => Boolean(x))),
-      ];
-      if (productIds.length > 0) {
-        const { data: prodRows } = await supabase
-          .from("products")
-          .select("id, stock")
-          .in("id", productIds);
-        const stockOf = new Map<string, number>(
-          (prodRows ?? []).map((p: { id: string; stock: number }) => [p.id, p.stock]),
-        );
-        const short = items.filter(
-          (i) => !i.product_id || (stockOf.get(i.product_id) ?? 0) < i.quantity,
-        );
-        if (short.length > 0) {
-          console.error(
-            `[oversell] ${orderInvoiceNo}: ${short
-              .map(
-                (s) =>
-                  `${s.product_name} (stok ${s.product_id ? stockOf.get(s.product_id) ?? 0 : "?"} < ${s.quantity})`,
-              )
-              .join(", ")}`,
-          );
-          return false;
-        }
-      }
-
-      for (const item of items) {
-        if (!item.product_id) continue;
-        const { error } = await supabase.from("stock_movements").insert({
-          product_id: item.product_id,
-          type: "SALE",
-          quantity: -item.quantity,
-          reference: orderInvoiceNo,
-        });
-        if (error) return false;
-      }
-      return true;
-    },
-    [supabase]
-  );
-
+  // ─── Status transitions ────────────────────────────────────────────────
+  // DRAFT →(checkoutOrder)→ CHECKED_OUT →(completeOrder)→ COMPLETED (final).
+  // Stok terpotong saat MASUK PROSES (→ CHECKED_OUT), bukan saat selesai.
   const checkoutOrder = useCallback(
     async (id: string): Promise<boolean> => {
+      const order = orders.find((o) => o.id === id);
+      if (!order || order.status !== "DRAFT") return false;
       if (!(await deductStockAndRecord(id))) return false;
       const { error } = await supabase
         .from("orders")
-        .update({ status: "COMPLETED" })
+        .update({ status: "CHECKED_OUT" })
         .eq("invoice_no", id);
       if (error) {
         console.error(formatError(error, "checkoutOrder"));
@@ -755,14 +789,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       await refresh();
       return true;
     },
-    [supabase, deductStockAndRecord, refresh]
+    [supabase, deductStockAndRecord, refresh, orders]
   );
 
   const completeOrder = useCallback(
     async (id: string): Promise<boolean> => {
       const order = orders.find((o) => o.id === id);
       if (!order || order.status !== "CHECKED_OUT") return false;
-      if (!(await deductStockAndRecord(id))) return false;
+      // Legacy: pesanan CHECKED_OUT yang dibuat sebelum alur ini stoknya
+      // belum terpotong (dulu dipotong saat selesai) → potong di sini.
+      const { data: movs } = await supabase
+        .from("stock_movements")
+        .select("type")
+        .eq("reference", id);
+      const alreadyDeducted = (movs ?? []).some((m: { type: string }) => m.type === "SALE");
+      if (!alreadyDeducted && !(await deductStockAndRecord(id))) return false;
       const { error } = await supabase
         .from("orders")
         .update({ status: "COMPLETED" })
@@ -778,20 +819,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const cancelOrder = useCallback(
-    async (id: string) => {
+    async (id: string): Promise<boolean> => {
       const order = orders.find((o) => o.id === id);
-      if (!order) return;
-
-      // Kalau sudah COMPLETED, stok sudah dikurangi → kembalikan
+      if (!order) return false;
+      // COMPLETED bersifat FINAL: buku penjualan & riwayat tidak berubah.
+      // Koreksi kesalahan lewat penyesuaian stok, bukan membatalkan.
       if (order.status === "COMPLETED") {
-        for (const item of order.items) {
-          if (!item.productId) continue;
-          await supabase.from("stock_movements").insert({
-            product_id: item.productId,
-            type: "RETURN",
-            quantity: item.quantity,
-            reference: id,
-          });
+        console.error(`[cancel] ${id} ditolak: pesanan COMPLETED bersifat final`);
+        return false;
+      }
+      // CHECKED_OUT: stok sudah terpotong saat masuk proses → kembalikan
+      // (hanya bila memang terpotong — pesanan legacy belum dipotong).
+      if (order.status === "CHECKED_OUT") {
+        const { data: movs } = await supabase
+          .from("stock_movements")
+          .select("type")
+          .eq("reference", id);
+        if ((movs ?? []).some((m: { type: string }) => m.type === "SALE")) {
+          for (const item of order.items) {
+            if (!item.productId) continue;
+            await supabase.from("stock_movements").insert({
+              product_id: item.productId,
+              type: "RETURN",
+              quantity: item.quantity,
+              reference: id,
+            });
+          }
         }
       }
 
@@ -799,10 +852,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .from("orders")
         .update({ status: "CANCELLED" })
         .eq("invoice_no", id);
-      if (error) console.error(formatError(error, "cancelOrder"));
+      if (error) {
+        console.error(formatError(error, "cancelOrder"));
+        return false;
+      }
       await refresh();
+      return true;
     },
     [supabase, refresh, orders]
+  );
+
+  // Arsip: sembunyikan dari daftar tanpa menghapus — ledger stok & total
+  // penjualan tidak terpengaruh (status pesanan tetap apa adanya).
+  const archiveOrder = useCallback(
+    async (id: string, archived: boolean) => {
+      const { data: row, error: findErr } = await supabase
+        .from("orders")
+        .select("id")
+        .eq("invoice_no", id)
+        .single();
+      if (findErr || !row) return;
+      const { error } = await supabase.from("orders").update({ archived }).eq("id", row.id);
+      if (error) console.error(formatError(error, "archiveOrder"));
+      await refresh();
+    },
+    [supabase, refresh]
   );
 
   // ─── Stock ─────────────────────────────────────────────────────────────
@@ -844,6 +918,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         cancelOrder,
         getNextInvoiceId,
         adjustStock,
+        archiveOrder,
         refresh,
       }}
     >
