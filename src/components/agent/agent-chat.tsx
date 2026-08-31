@@ -1,7 +1,16 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, Bot, Info, Sparkles } from "lucide-react";
+import {
+  ArrowRight,
+  Bot,
+  BookPlus,
+  ChartColumn,
+  Info,
+  PackagePlus,
+  PackageSearch,
+  Sparkles,
+} from "lucide-react";
 import Link from "next/link";
 import {
   useCallback,
@@ -24,7 +33,11 @@ import {
   MessageScroller,
   MessageTyping,
 } from "@/components/agents/message";
-import { PromptInput, type PromptModel } from "@/components/agents/prompt-input";
+import {
+  PromptInput,
+  type PromptAction,
+  type PromptModel,
+} from "@/components/agents/prompt-input";
 import { StreamingResponse } from "@/components/agents/streaming-response";
 import { ThinkingShimmer } from "@/components/agents/loading-states/thinking-shimmer";
 import { TodoList, type TodoItem } from "@/components/agents/todo-list";
@@ -121,6 +134,42 @@ const QUICK_PROMPTS = [
   "Produk apa yang stoknya rendah?",
   "Bandingkan penjualan bulan ini dan bulan lalu",
   "Tambahkan produk baru",
+];
+
+/**
+ * Prompt actions di composer (menu "+"): mengisi ulang input dengan prompt
+ * siap-ketik — pengguna bebas melengkapi/koreksi sebelum Enter. (Pola BeUI
+ * PromptInput: actions menu di samping pemilih model.)
+ */
+const PROMPT_ACTIONS: (PromptAction & { starter: string })[] = [
+  {
+    value: "low-stock",
+    label: "Cek stok rendah",
+    description: "Daftar produk yang stoknya menipis",
+    icon: <PackageSearch />,
+    starter: "Produk apa yang stoknya rendah?",
+  },
+  {
+    value: "sales-report",
+    label: "Laporan penjualan",
+    description: "Rekap penjualan periode tertentu",
+    icon: <ChartColumn />,
+    starter: "Buatkan laporan penjualan minggu ini",
+  },
+  {
+    value: "add-product",
+    label: "Tambah produk",
+    description: "Daftarkan buku baru ke katalog",
+    icon: <BookPlus />,
+    starter: "Saya mau menambah produk baru: ",
+  },
+  {
+    value: "add-stock",
+    label: "Tambah stok",
+    description: "Catat pembelian/retur barang",
+    icon: <PackagePlus />,
+    starter: "Saya mau menambah stok untuk: ",
+  },
 ];
 
 let counter = 0;
@@ -294,6 +343,7 @@ export function AgentChat() {
         out.push({
           value: optionKey(p.providerId, m.id),
           label: multi ? `${p.displayName} · ${name}` : name,
+          icon: <Bot />,
         });
       }
     }
@@ -464,6 +514,12 @@ export function AgentChat() {
     abortRef.current?.abort();
   }, []);
 
+  // Aksi prompt (menu "+"): isi composer dengan prompt siap-ketik.
+  const handlePromptAction = useCallback((action: string) => {
+    const starter = PROMPT_ACTIONS.find((a) => a.value === action)?.starter;
+    if (starter) setInput(starter);
+  }, []);
+
   const decideApproval = useCallback(
     async (msgId: string, approvalId: string, decision: "approve" | "reject") => {
       const approval = messages.find((m) => m.id === msgId)?.approval;
@@ -615,6 +671,8 @@ export function AgentChat() {
               models={promptModels}
               model={selectedOption || undefined}
               onModelChange={setSelectedOption}
+              actions={PROMPT_ACTIONS}
+              onAction={handlePromptAction}
               onSubmit={(value) => void send(value)}
               loading={busy}
               onStop={stop}

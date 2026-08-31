@@ -230,6 +230,9 @@ export function PromptInput({
                   onClick={() => {
                     onAction?.(action.value);
                     setActionsOpen(false);
+                    // Fokus sempat pindah ke popover — kembalikan ke input
+                    // agar pengguna langsung bisa mengetik.
+                    textareaRef.current?.focus({ preventScroll: true });
                   }}
                   className="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none transition-colors hover:bg-muted focus-visible:bg-muted disabled:pointer-events-none disabled:opacity-50"
                 >
