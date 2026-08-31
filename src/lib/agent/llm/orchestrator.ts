@@ -381,10 +381,73 @@ const CONFIRM_BUILDERS: Record<string, (data: unknown) => string | null> = {
 };
 
 /**
- * Susun teks konfirmasi deterministik bila SEMUA outcome ronde adalah
- * operasi tulis sederhana (update_stock/create_product/update_product/navigate)
- * yang sukses. Mengembalikan null bila ada satu pun kegagalan atau tool
- * non-standar — maka model tetap diberi ronde LLM untuk menjelaskan.
+ * Ringkasan deterministik SATU baris untuk tool baca-LAPORAN (fast path baca).
+ * Kartunya sudah tampil saat tool selesai, jadi ronde LLM penutup hanya akan
+ * menulis "kalimat cantik" — diganti baris faktual ini (angka dari hasil
+ * tool, nol karangan).
+ *
+ * Whitelist konservatif — hanya laporan "murni" yang isinya JAWABAN. Tool
+ * yang sering jadi tangga langkah berikutnya (get_stock, search_products,
+ * get_product, list_zero_stock_products) TIDAK masuk: model tetap diberi
+ * ronde untuk memutuskan lanjut apa tidak.
+ */
+function salesLine(d: unknown, fallbackLabel: string): string | null {
+  const s = (d ?? null) as Partial<SalesWithComparison> | null;
+  if (!s || typeof s.total !== "number" || typeof s.transactions !== "number") return null;
+  const label = typeof s.periodLabel === "string" && s.periodLabel ? s.periodLabel : fallbackLabel;
+  if (s.transactions === 0) return `Belum ada transaksi **${label}**.`;
+  let line = `Penjualan **${label}**: **${formatIDR(s.total)}** dari ${formatInt(s.transactions)} transaksi`;
+  if (typeof s.itemsSold === "number") line += ` (${formatInt(s.itemsSold)} item)`;
+  line += ".";
+  if (typeof s.deltaPercent === "number") {
+    line += ` Perubahan ${s.deltaPercent > 0 ? "+" : ""}${s.deltaPercent}% vs periode sebelumnya.`;
+  }
+  return line;
+}
+
+function topSellingLine(d: unknown): string | null {
+  const items = (Array.isArray(d) ? d : ((d as { items?: TopProduct[] } | null)?.items ?? [])) as TopProduct[];
+  if (!items.length) return null; // hasil kosong → biarkan LLM menjelaskan
+  const parts = items.slice(0, 3).map((p) => `**${p.name}** (${formatInt(p.quantity)} pcs)`);
+  const extra = items.length > 3 ? ` +${items.length - 3} lagi` : "";
+  return `Produk terlaris: ${parts.join(", ")}${extra}.`;
+}
+
+function lowStockLine(d: unknown): string | null {
+  const r = (d ?? null) as { threshold?: number; items?: StockRow[] } | null;
+  if (!r || !Array.isArray(r.items)) return null;
+  const t = typeof r.threshold === "number" ? `${formatInt(r.threshold)} pcs` : "ambang";
+  return r.items.length
+    ? `**${formatInt(r.items.length)} produk** di bawah ${t} — lihat daftar di atas.`
+    : `Semua aman: tidak ada produk di bawah ${t}.`;
+}
+
+const SUMMARY_BUILDERS: Record<string, (data: unknown) => string | null> = {
+  get_today_sales: (d) => salesLine(d, "hari ini"),
+  get_sales: (d) => salesLine(d, "periode tersebut"),
+  get_sales_summary: (d) => salesLine(d, "periode tersebut"),
+  get_report: (d) => {
+    const r = (d ?? null) as ReportData | null;
+    return r?.summary
+      ? salesLine(r.summary, typeof r.periodLabel === "string" && r.periodLabel ? r.periodLabel : "laporan")
+      : null;
+  },
+  get_top_selling_products: topSellingLine,
+  get_low_stock_products: lowStockLine,
+};
+
+/** Tulis + baca-laporan: satu map, satu aturan. */
+const FAST_BUILDERS: Record<string, (data: unknown) => string | null> = {
+  ...CONFIRM_BUILDERS,
+  ...SUMMARY_BUILDERS,
+};
+
+/**
+ * Susun penutup deterministik bila SEMUA outcome ronde adalah operasi yang
+ * sukses dan dikenal (tulis: update_stock/create_product/update_product/
+ * navigate; baca: tool laporan di SUMMARY_BUILDERS). Mengembalikan null bila
+ * ada satu pun kegagalan, hasil yang builder-nya tidak yakin, atau tool di
+ * luar whitelist — maka model tetap diberi ronde LLM.
  */
 function buildSimpleConfirmation(outcomes: RoundOutcome[]): string | null {
   if (outcomes.length === 0) return null;
@@ -395,7 +458,7 @@ function buildSimpleConfirmation(outcomes: RoundOutcome[]): string | null {
       lines.push(`Selesai — **${o.action.label}** sudah saya siapkan; silakan klik tautannya.`);
       continue;
     }
-    const builder = CONFIRM_BUILDERS[o.toolName];
+    const builder = FAST_BUILDERS[o.toolName];
     if (!builder) return null;
     const line = builder(o.data);
     if (!line) return null;
@@ -536,10 +599,11 @@ export async function runLlmTurn(input: LlmTurnInput): Promise<AgentContext> {
 
       if (stoppedForApproval) break;
 
-      // FAST PATH: bila SEMUA tool ronde ini operasi tulis sederhana dan
-      // semuanya sukses, penutupnya sudah deterministik — tidak perlu ronde
-      // LLM lagi. Dengan gateway lambat (TTFB 20-30 dtk/ronde) ini memangkas
-      // satu ronde penuh. Kegagalan/tool lain → kembali ke alur LLM normal.
+      // FAST PATH: bila SEMUA tool ronde ini dikenal (tulis sederhana ATAU
+      // laporan baca) dan semuanya sukses, penutupnya sudah deterministik —
+      // tidak perlu ronde LLM lagi. Dengan gateway lambat (TTFB hitungan
+      // detik/ronde) ini memangkas satu ronde penuh: laporan rutin ~3 dtk,
+      // bukan ~6-8 dtk. Kegagalan/tool di luar whitelist → alur LLM normal.
       const confirmation = buildSimpleConfirmation(roundOutcomes);
       if (confirmation) {
         await streamText(emit, confirmation);

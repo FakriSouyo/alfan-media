@@ -140,14 +140,14 @@ describe("orkestrator LLM", () => {
   it("penjualan hari ini: data dari tool, blok stats, tanpa angka karangan", async () => {
     const mock = new MockSupabase(seedDb());
     mock.simulateDbBehavior = true;
-    installLlm([
+    const { seen } = installLlm([
       { kind: "tool_calls", calls: [{ id: "call_1", name: "get_today_sales", args: {} }] },
-      { kind: "content", content: "Penjualan hari ini Rp150.000 dari 1 transaksi." },
     ]);
 
     const { events, context, text } = await runTurn(mock, "Berapa penjualan hari ini?");
 
-    // LLM dipanggil 2x (round 1 tool, round 2 final).
+    // Fast path baca: LLM cukup 1x (routing); penutup deterministik.
+    expect(seen.length).toBe(1);
     expect(text).toContain("150.000");
     const stats = events.find(
       (e): e is Extract<AgentEvent, { type: "block" }> & { block: { kind: "stats" } & { items: { label: string; value: string }[] } } =>
@@ -283,15 +283,67 @@ describe("orkestrator LLM", () => {
     expect(text).toContain("tidak saya temukan");
   });
 
-  it("fast path TIDAK aktif untuk tool baca → LLM tetap merangkum", async () => {
+  it("fast path baca: get_low_stock_products → TANPA ronde LLM kedua", async () => {
     const mock = new MockSupabase(seedDb());
     mock.simulateDbBehavior = true;
     const { seen } = installLlm([
-      { kind: "tool_calls", calls: [{ id: "call_1", name: "get_today_sales", args: {} }] },
-      { kind: "content", content: "Penjualan hari ini Rp150.000." },
+      { kind: "tool_calls", calls: [{ id: "call_1", name: "get_low_stock_products", args: { threshold: 5 } }] },
     ]);
 
-    await runTurn(mock, "Berapa penjualan hari ini?");
+    const { text } = await runTurn(mock, "Produk apa yang stoknya rendah?");
+
+    expect(seen.length).toBe(1);
+    // Seed: p2 stok 4, p3 stok 0 → 2 produk di bawah 5.
+    expect(text).toContain("2 produk");
+    expect(text).toContain("5 pcs");
+  });
+
+  it("fast path baca: get_top_selling_products → TANPA ronde LLM kedua", async () => {
+    const mock = new MockSupabase(seedDb());
+    mock.simulateDbBehavior = true;
+    const { seen } = installLlm([
+      { kind: "tool_calls", calls: [{ id: "call_1", name: "get_top_selling_products", args: { period: "today" } }] },
+    ]);
+
+    const { text } = await runTurn(mock, "Produk apa yang paling laku hari ini?");
+
+    expect(seen.length).toBe(1);
+    expect(text).toContain("Produk terlaris");
+    expect(text).toContain("Algebra X");
+    expect(text).toContain("3 pcs");
+  });
+
+  it("fast path campur: laporan + tulis satu ronde → penutup deterministik gabungan", async () => {
+    const mock = new MockSupabase(seedDb());
+    mock.simulateDbBehavior = true;
+    const { seen } = installLlm([
+      {
+        kind: "tool_calls",
+        calls: [
+          { id: "call_1", name: "get_today_sales", args: {} },
+          { id: "call_2", name: "update_stock", args: { id: ID.p2, delta: 5 } },
+        ],
+      },
+    ]);
+
+    const { text } = await runTurn(mock, "Penjualan hari ini, sekalian tambah 5 stok Algebra XI");
+
+    expect(seen.length).toBe(1);
+    expect(text).toContain("150.000"); // baris laporan
+    expect(text).toContain("Algebra XI"); // baris konfirmasi stok
+    expect(mock.tables["products"].find((p) => p.id === ID.p2)).toMatchObject({ stock: 9 });
+  });
+
+  it("fast path TIDAK aktif untuk tangga langkah (get_stock) → LLM tetap diberi ronde", async () => {
+    const mock = new MockSupabase(seedDb());
+    mock.simulateDbBehavior = true;
+    const { seen } = installLlm([
+      { kind: "tool_calls", calls: [{ id: "call_1", name: "get_stock", args: {} }] },
+      { kind: "content", content: "Ini daftar stok produk." },
+    ]);
+
+    await runTurn(mock, "Cek stok semua produk, nanti saya minta tambah");
+    // get_stock sering jadi prasyarat aksi → model tetap dapat ronde lanjutan.
     expect(seen.length).toBe(2);
   });
 
