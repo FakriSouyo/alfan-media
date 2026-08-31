@@ -571,7 +571,16 @@ export function AgentChat() {
 
   const hasContent = messages.length > 0;
   const isEmpty = !hasContent;
-  const currentModelLabel = promptModels.find((m) => m.value === selectedOption)?.label;
+
+  // Status koneksi AI untuk chip header: hijau bila ada provider+model
+  // aktif, merah bila tidak (gagal muat daftar / tidak ada provider),
+  // netral saat daftar model masih dimuat.
+  const aiStatus: "loading" | "connected" | "disconnected" =
+    pickerOptions === null
+      ? "loading"
+      : pickerError || pickerOptions.length === 0
+        ? "disconnected"
+        : "connected";
 
   // Tinggi kolom chat = viewport dikurangi header app (h-12) — isinya
   // scroll internal, jadi layout app (sidebar + header) tetap utuh.
@@ -590,14 +599,35 @@ export function AgentChat() {
             </span>
           </div>
         </div>
-        {currentModelLabel ? (
+        <span
+          title={
+            aiStatus === "connected"
+              ? "AI aktif — model dipilih di kolom chat"
+              : aiStatus === "disconnected"
+                ? "Tidak ada model AI aktif — lihat pesan di kolom chat"
+                : "Memeriksa ketersediaan AI…"
+          }
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-muted/60 px-2.5 py-1 text-[11px] font-medium",
+            aiStatus === "connected" && "text-emerald-600 dark:text-emerald-400",
+            aiStatus === "disconnected" && "text-red-600 dark:text-red-400",
+            aiStatus === "loading" && "text-muted-foreground",
+          )}
+        >
           <span
-            title="Model aktif — ubah lewat pemilih di kolom chat"
-            className="shrink-0 truncate rounded-full border border-border bg-muted/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
-          >
-            {currentModelLabel}
-          </span>
-        ) : null}
+            className={cn(
+              "size-1.5 rounded-full",
+              aiStatus === "connected" && "bg-emerald-500",
+              aiStatus === "disconnected" && "bg-red-500",
+              aiStatus === "loading" && "bg-muted-foreground/50",
+            )}
+          />
+          {aiStatus === "connected"
+            ? "Tersambung"
+            : aiStatus === "disconnected"
+              ? "Terputus"
+              : "Memuat…"}
+        </span>
       </header>
 
       {/* Transcript */}
