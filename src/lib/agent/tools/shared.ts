@@ -17,6 +17,8 @@ export interface ProductRow {
   published_year: number | null;
   semester: "Ganjil" | "Genap";
   stock: number;
+  cost_price: number;
+  image_path: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -195,7 +197,7 @@ export async function fetchProductFull(
 ): Promise<{ product: ProductRow; prices: ProductPriceRow[]; category?: CategoryRow } | null> {
   const { data, error } = await supabase
     .from("products")
-    .select("id, name, category_id, barcode, description, published_year, semester, stock, created_at, updated_at")
+    .select("id, name, category_id, barcode, description, published_year, semester, stock, cost_price, image_path, created_at, updated_at")
     .eq("id", id)
     .maybeSingle();
   if (error) throw new Error("product lookup failed");

@@ -191,7 +191,7 @@ describe("Produk & sumber kebenaran stok", () => {
     const created = await actAsync(() =>
       S().addProduct({
         name: "Buku Baru", categoryId: ID.c1, barcode: "BB1", description: "",
-        publishedYear: 2026, semester: "Ganjil", stock: 25,
+        publishedYear: 2026, semester: "Ganjil", stock: 25, costPrice: 5000,
         prices: [{ id: "x", tierName: "Normal", price: 9000, isDefault: true }],
       })
     );
@@ -212,7 +212,7 @@ describe("Produk & sumber kebenaran stok", () => {
     await actAsync(() =>
       S().addProduct({
         name: "Buku Kosong", categoryId: ID.c1, barcode: "BB2", description: "",
-        publishedYear: 2026, semester: "Genap", stock: 0,
+        publishedYear: 2026, semester: "Genap", stock: 0, costPrice: 0,
         prices: [{ id: "y", tierName: "Normal", price: 1, isDefault: true }],
       })
     );
@@ -264,7 +264,7 @@ describe("Pesanan & invoice", () => {
     const order = await actAsync(() =>
       S().addOrder({
         date: "2026-08-30", customerId: null, customerName: "Walk-in",
-        items: [{ id: "x", productId: ID.p1, productName: "Algebra X", productBarcode: "BC1", quantity: 3, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 150000 }],
+        items: [{ id: "x", productId: ID.p1, productName: "Algebra X", productBarcode: "BC1", quantity: 3, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 150000, costPrice: 35000 }],
         subtotal: 150000, discount: 0, total: 150000, status: "CHECKED_OUT",
         suratJalan: { no: "SJ-INV-002", tanggal: "2026-08-30", pengirim: "Toko", penerima: "Walk-in", estimasi: "", namaPengirim: "", kendaraan: "", catatan: "" },
       })
@@ -409,7 +409,7 @@ describe("Transisi status & stok", () => {
     const res = await actAsync(() =>
       S().addOrder({
         date: "2026-08-27", customerId: null, customerName: "T",
-        items: [{ id: "n1", productId: ID.p1, productName: "Algebra X", productBarcode: "BC1", quantity: 2, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 100000 }],
+        items: [{ id: "n1", productId: ID.p1, productName: "Algebra X", productBarcode: "BC1", quantity: 2, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 100000, costPrice: 35000 }],
         subtotal: 100000, discount: 0, total: 100000, status: "CHECKED_OUT",
       }),
     );
@@ -426,7 +426,7 @@ describe("Transisi status & stok", () => {
     const res = await actAsync(() =>
       S().addOrder({
         date: "2026-08-27", customerId: null, customerName: "T",
-        items: [{ id: "n2", productId: ID.p1, productName: "Algebra X", productBarcode: "BC1", quantity: 99, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 4950000 }],
+        items: [{ id: "n2", productId: ID.p1, productName: "Algebra X", productBarcode: "BC1", quantity: 99, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 4950000, costPrice: 35000 }],
         subtotal: 4950000, discount: 0, total: 4950000, status: "CHECKED_OUT",
       }),
     );

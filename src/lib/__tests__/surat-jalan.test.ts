@@ -22,7 +22,7 @@ const order: Order = {
   customerId: null,
   customerName: "SDN <05> Bandung",
   items: [
-    { id: "1", productId: "p1", productName: "IPA & Sains", productBarcode: "BC1", quantity: 20, unitPrice: 60000, priceTier: "Sekolah", customPrice: null, discountPercent: 10, subtotal: 1080000 },
+    { id: "1", productId: "p1", productName: "IPA & Sains", productBarcode: "BC1", quantity: 20, unitPrice: 60000, priceTier: "Sekolah", customPrice: null, discountPercent: 10, subtotal: 1080000, costPrice: 45000 },
   ],
   subtotal: 1200000,
   discount: 120000,
@@ -49,9 +49,22 @@ describe("printSuratJalan", () => {
     expect(captured).toContain("SDN &lt;05&gt; Bandung");
   });
 
-  it("menampilkan diskon & total", () => {
+  it("menampilkan nama barang, barcode, dan banyaknya (tanpa harga)", () => {
     stubWindow();
     printSuratJalan(order);
-    expect(captured).toContain("Diskon");
+    // Hanya Nama Barang, Barcode, dan Banyaknya — TIDAK ada Harga Satuan/Jumlah/Total.
+    expect(captured).toContain("Nama Barang");
+    expect(captured).toContain("Barcode: BC1");
+    expect(captured).toContain("Banyaknya");
+    expect(captured).not.toContain("Harga Satuan");
+    expect(captured).not.toContain("Subtotal");
+    expect(captured).not.toContain("Total");
+  });
+
+  it("memakai alamat toko yang benar di kop surat", () => {
+    stubWindow();
+    printSuratJalan(order);
+    expect(captured).toContain("Jl. Pattimura No.46A");
+    expect(captured).toContain("Kec. Selong");
   });
 });

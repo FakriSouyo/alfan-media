@@ -103,10 +103,10 @@ const DATE_COLUMNS: Record<string, readonly string[]> = {
 };
 
 const INT_COLUMNS: Record<string, readonly string[]> = {
-  products: ["published_year", "stock"],
+  products: ["published_year", "stock", "cost_price"],
   product_prices: ["price"],
   orders: ["subtotal", "discount", "total"],
-  order_items: ["quantity", "unit_price", "subtotal"],
+  order_items: ["quantity", "unit_price", "subtotal", "cost_price"],
   stock_movements: ["quantity"],
 };
 

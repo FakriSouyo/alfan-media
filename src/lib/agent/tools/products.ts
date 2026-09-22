@@ -38,6 +38,7 @@ export interface ProductView {
   publishedYear: number;
   semester: string;
   stock: number;
+  costPrice: number;
   defaultPrice: number | null;
   prices: { tierName: string; price: number; isDefault: boolean }[];
 }
@@ -63,6 +64,7 @@ function toView(p: ProductRow, prices: ProductPriceRow[], category?: CategoryRow
     publishedYear: p.published_year ?? 0,
     semester: p.semester,
     stock: p.stock,
+    costPrice: p.cost_price ?? 0,
     defaultPrice,
     prices: prices.map((x) => ({ tierName: x.tier_name, price: x.price, isDefault: x.is_default })),
   };
@@ -241,8 +243,9 @@ export async function runCreateProduct(
         published_year: p.publishedYear,
         semester: p.semester,
         stock: 0,
+        cost_price: p.costPrice ?? 0,
       })
-      .select("id, name, category_id, barcode, description, published_year, semester, stock, created_at, updated_at")
+      .select("id, name, category_id, barcode, description, published_year, semester, stock, cost_price, image_path, created_at, updated_at")
       .single();
     if (productError) {
       if (productError.code === "23505") {
@@ -336,6 +339,10 @@ export async function runUpdateProduct(
     if (p.semester != null && p.semester !== before.product.semester) {
       patch.semester = p.semester;
       changed.push("semester");
+    }
+    if (p.costPrice != null && p.costPrice !== before.product.cost_price) {
+      patch.cost_price = p.costPrice;
+      changed.push("harga awal");
     }
     if (p.categoryId != null && p.categoryId !== before.product.category_id) {
       const cat = (await ctx.supabase.from("categories").select("id").eq("id", p.categoryId).maybeSingle()).data;

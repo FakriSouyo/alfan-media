@@ -6,7 +6,8 @@ import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
 import { PageHeader } from "@/components/page-header";
 import { CategoryName, categoryText } from "@/components/category-label";
-import { ArrowLeft, Plus, Trash2, Save } from "lucide-react";
+import { ProductImageUpload } from "@/components/product-image-upload";
+import { ArrowLeft, Plus, Trash2, Save, Banknote, History, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import {
   Select,
@@ -18,10 +19,26 @@ import {
 export default function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { products, categories, movements, updateProduct, adjustStock } = useStore();
+  const { products, categories, movements, orders, updateProduct, adjustStock } = useStore();
   const product = products.find((p) => p.id === id);
   const category = categories.find((c) => c.id === product?.categoryId);
   const productMovements = movements.filter((m) => m.productId === id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const salesHistory = (() => {
+    const rows: { order: typeof orders[0]; item: typeof orders[0]["items"][0] }[] = [];
+    for (const o of orders) for (const it of o.items) if (it.productId === id) rows.push({ order: o, item: it });
+    rows.sort((a,b)=> b.order.createdAt.localeCompare(a.order.createdAt));
+    return rows;
+  })();
+  const salesStats = (() => {
+    let terjual=0, omzet=0, modal=0, laba=0;
+    for (const {order, item} of salesHistory.filter(({order})=> order.status!=="CANCELLED")) {
+      const discPesanan = order.discount>0 && order.subtotal>0 ? Math.round(order.discount*(item.subtotal/order.subtotal)) : 0;
+      const rev = item.subtotal - discPesanan;
+      const c = (item.costPrice ?? product?.costPrice ?? 0)*item.quantity;
+      terjual+=item.quantity; omzet+=rev; modal+=c; laba+=rev-c;
+    }
+    return { terjual, omzet, modal, laba, count: salesHistory.length };
+  })();
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(product?.name ?? "");
@@ -30,6 +47,8 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
   const [description, setDescription] = useState(product?.description ?? "");
   const [publishedYear, setPublishedYear] = useState(product?.publishedYear ?? new Date().getFullYear());
   const [semester, setSemester] = useState<"Ganjil" | "Genap">(product?.semester ?? "Ganjil");
+  const [costPrice, setCostPrice] = useState(product?.costPrice ?? 0);
+  const [imagePath, setImagePath] = useState(product?.imagePath ?? "");
   const [prices, setPrices] = useState(product?.prices ?? []);
   const [adjQty, setAdjQty] = useState(0);
   const [adjRef, setAdjRef] = useState("");
@@ -49,7 +68,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
   const setDefault = (i: number) => setPrices(prices.map((p, idx) => ({ ...p, isDefault: idx === i })));
 
   const handleSave = () => {
-    updateProduct(id, { name, categoryId, barcode, description, publishedYear, semester, prices });
+    updateProduct(id, { name, categoryId, barcode: barcode.trim(), description, publishedYear, semester, costPrice, imagePath: imagePath || undefined, prices });
     setEditing(false);
   };
 
@@ -72,13 +91,13 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
       </div>
       <PageHeader
         title={product.name}
-        description={`Barcode: ${product.barcode} · ${categoryText(category)} · ${product.semester}`}
+        description={`${product.barcode ? `Barcode: ${product.barcode} · ` : "Tanpa barcode · "}${categoryText(category)} · ${product.semester}`}
         actions={
           !editing ? (
             <button onClick={() => setEditing(true)} className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04]">Edit</button>
           ) : (
             <div className="flex gap-2">
-              <button onClick={() => { setEditing(false); setName(product.name); setCategoryId(product.categoryId); setBarcode(product.barcode); setDescription(product.description); setPublishedYear(product.publishedYear); setSemester(product.semester); setPrices(product.prices); }} className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04]">Batal</button>
+              <button onClick={() => { setEditing(false); setName(product.name); setCategoryId(product.categoryId); setBarcode(product.barcode); setDescription(product.description); setPublishedYear(product.publishedYear); setSemester(product.semester); setCostPrice(product.costPrice); setImagePath(product.imagePath ?? ""); setPrices(product.prices); }} className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04]">Batal</button>
               <button onClick={handleSave} className="flex items-center gap-1 rounded-lg bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:opacity-90"><Save size={14} /> Simpan</button>
             </div>
           )
@@ -88,6 +107,10 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_320px]">
         {/* Details */}
         <div className="rounded-xl border border-border bg-background p-4">
+          <div className="mb-3">
+            <label className="mb-1 block text-[12px] font-medium text-foreground">Gambar Sampul</label>
+            <ProductImageUpload value={editing ? (imagePath || undefined) : (product.imagePath || undefined)} onChange={setImagePath} />
+          </div>
           {editing ? (
             <div className="flex flex-col gap-3">
               <label className="text-[12px] font-medium text-foreground">Nama Produk</label>
@@ -101,11 +124,18 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                   ))}
                 </SelectContent>
               </Select>
-              <label className="text-[12px] font-medium text-foreground">Barcode</label>
-              <input value={barcode} onChange={(e) => setBarcode(e.target.value)} className={inputClass} />
+              <label className="text-[12px] font-medium text-foreground">Barcode (opsional)</label>
+              <input
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                placeholder="Boleh dikosongkan"
+                inputMode="numeric"
+                autoComplete="off"
+                className={inputClass}
+              />
               <label className="text-[12px] font-medium text-foreground">Deskripsi</label>
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className={inputClass} />
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div><label className="text-[12px] font-medium text-foreground">Tahun</label><input type="number" value={publishedYear} onChange={(e) => setPublishedYear(parseInt(e.target.value) || 0)} className={inputClass} /></div>
                 <div><label className="text-[12px] font-medium text-foreground">Semester</label>
                   <Select value={semester} onValueChange={(v) => setSemester(v as "Ganjil" | "Genap")}>
@@ -116,6 +146,12 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="flex items-center gap-1 text-[12px] font-medium text-foreground"><Banknote size={12} /> Harga Awal (Modal)</label>
+                  <input type="number" value={costPrice || ""} onChange={(e) => setCostPrice(parseInt(e.target.value) || 0)} min={0} className={inputClass} />
+                </div>
                 <div><label className="text-[12px] font-medium text-foreground">Stok</label><input type="number" value={product.stock} readOnly className={inputClass + " opacity-60"} /></div>
               </div>
             </div>
@@ -125,6 +161,20 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
               <Row label="Tahun Terbit" value={String(product.publishedYear)} />
               <Row label="Semester" value={product.semester} />
               <Row label="Stok Saat Ini" value={String(product.stock)} />
+              <Row label="Harga Awal (Modal)" value={formatRupiah(product.costPrice ?? 0)} />
+              {(() => {
+                const sell = product.prices.find((p) => p.isDefault)?.price ?? 0;
+                const cost = product.costPrice ?? 0;
+                if (sell <= 0) return null;
+                const margin = sell - cost;
+                const pct = sell > 0 ? Math.round((margin / sell) * 1000) / 10 : 0;
+                return (
+                  <Row
+                    label="Laba per Unit"
+                    value={`${formatRupiah(margin)} (${pct}%)`}
+                  />
+                );
+              })()}
             </div>
           )}
         </div>
@@ -166,6 +216,72 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
             <input value={adjRef} onChange={(e) => setAdjRef(e.target.value)} placeholder="Catatan" className="h-8 flex-1 rounded-lg border border-border bg-background px-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring" />
             <button onClick={handleAdjust} className="rounded-lg bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:opacity-90">OK</button>
           </div>
+        </div>
+
+        {/* Riwayat Penjualan & Laba — terlihat laba per buku + dropdown riwayat */}
+        <div className="rounded-xl border border-border bg-background p-4 lg:col-span-2">
+          <h3 className="mb-3 flex items-center gap-1.5 text-[13px] font-semibold text-foreground"><History size={14}/> Riwayat Penjualan & Laba</h3>
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-lg border border-border bg-muted/20 p-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Terjual</div>
+              <div className="text-[14px] font-bold text-foreground">{salesStats.terjual} pcs</div>
+              <div className="text-[11px] text-muted-foreground">{salesStats.count} transaksi</div>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/20 p-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Omzet bersih</div>
+              <div className="text-[13px] font-semibold text-foreground">{formatRupiah(salesStats.omzet)}</div>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/20 p-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Modal terpakai</div>
+              <div className="text-[13px] font-medium text-muted-foreground">{formatRupiah(salesStats.modal)}</div>
+            </div>
+            <div className={`rounded-lg border p-2.5 ${salesStats.laba>=0 ? "border-emerald-500/20 bg-emerald-500/10" : "border-destructive/20 bg-destructive/10"}`}>
+              <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide opacity-70"><TrendingUp size={10}/> Laba total</div>
+              <div className={`text-[13px] font-bold ${salesStats.laba>=0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>{formatRupiah(salesStats.laba)}</div>
+              <div className="text-[11px] opacity-70">{salesStats.omzet>0 ? Math.round(salesStats.laba/salesStats.omzet*100):0}% margin</div>
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="border-b border-border bg-muted/30 text-left text-muted-foreground">
+                  <th className="px-2.5 py-1.5 font-medium">Tanggal / Invoice</th>
+                  <th className="px-2.5 py-1.5 font-medium hidden sm:table-cell">Pelanggan</th>
+                  <th className="px-2.5 py-1.5 font-medium text-right">Qty</th>
+                  <th className="px-2.5 py-1.5 font-medium text-right">Harga</th>
+                  <th className="px-2.5 py-1.5 font-medium text-right hidden sm:table-cell">Modal</th>
+                  <th className="px-2.5 py-1.5 font-medium text-right">Laba</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salesHistory.slice(0,20).map(({order,item})=>{
+                  const discPesanan = order.discount>0 && order.subtotal>0 ? Math.round(order.discount*(item.subtotal/order.subtotal)) : 0;
+                  const revenue = item.subtotal - discPesanan;
+                  const cost = (item.costPrice ?? product.costPrice ?? 0)*item.quantity;
+                  const laba = revenue - cost;
+                  return (
+                    <tr key={order.id+item.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40">
+                      <td className="px-2.5 py-1.5">
+                        <div className="font-medium text-foreground">{order.id}</div>
+                        <div className="text-[11px] text-muted-foreground">{order.date} · <span className={`rounded px-1 py-0.5 text-[10px] ${order.status==="COMPLETED"?"bg-emerald-500/15 text-emerald-600": order.status==="CANCELLED"?"bg-destructive/15 text-destructive":"bg-foreground/10 text-foreground"}`}>{order.status}</span></div>
+                      </td>
+                      <td className="px-2.5 py-1.5 hidden sm:table-cell text-muted-foreground truncate max-w-[110px]">{order.customerName}</td>
+                      <td className="px-2.5 py-1.5 text-right font-medium text-foreground">×{item.quantity}</td>
+                      <td className="px-2.5 py-1.5 text-right">
+                        <div className="font-medium text-foreground">{formatRupiah(item.unitPrice)}</div>
+                        {item.discountPercent>0 && <div className="text-destructive text-[11px]">−{item.discountPercent}%</div>}
+                        {discPesanan>0 && <div className="text-amber-600 text-[10px]">−{formatRupiah(discPesanan)}</div>}
+                      </td>
+                      <td className="px-2.5 py-1.5 text-right text-muted-foreground hidden sm:table-cell">{formatRupiah(cost)}</td>
+                      <td className={`px-2.5 py-1.5 text-right font-semibold ${laba>=0?"text-emerald-600 dark:text-emerald-400":"text-destructive"}`}>{formatRupiah(laba)}</td>
+                    </tr>
+                  );
+                })}
+                {salesHistory.length===0 && <tr><td colSpan={6} className="px-2.5 py-6 text-center text-muted-foreground">Belum pernah terjual — laba akan muncul setelah ada transaksi</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          {salesHistory.length>20 && <p className="mt-1.5 text-center text-[11px] text-muted-foreground">Menampilkan 20 terbaru dari {salesHistory.length} transaksi</p>}
         </div>
 
         {/* Stock Movements */}

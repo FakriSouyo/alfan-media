@@ -3,8 +3,8 @@ import { LoginForm } from "./login-form";
 import { AuthBrandPanel } from "./auth-brand-panel";
 
 export const metadata: Metadata = {
-  title: "Sign in · Alfan Media",
-  description: "Sign in to manage your bookstore dashboard.",
+  title: "Masuk · Alfan Media",
+  description: "Masuk untuk mengelola toko buku Alfan Media.",
 };
 
 export default function LoginPage() {

@@ -30,6 +30,10 @@ export interface Product {
   semester: "Ganjil" | "Genap";
   stock: number;
   prices: ProductPrice[];
+  /** Harga awal / modal per unit (IDR). Dipakai menghitung laba. */
+  costPrice: number;
+  /** Path objek di bucket "product-images" (atau falsy bila tanpa gambar). */
+  imagePath?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -57,6 +61,8 @@ export interface OrderItem {
   customPrice: number | null;
   discountPercent: number;
   subtotal: number;
+  /** Snapshot modal per unit saat pesanan dibuat (untuk perhitungan laba). */
+  costPrice: number;
 }
 
 export interface OrderRevision {

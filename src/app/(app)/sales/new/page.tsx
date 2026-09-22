@@ -8,7 +8,8 @@ import { PageHeader } from "@/components/page-header";
 import { CategoryName } from "@/components/category-label";
 import { BarcodeScanPanel, ScanStatusDot } from "@/components/barcode-scan-panel";
 import type { ScanStatus } from "@/hooks/use-barcode-scanner";
-import { Search, Plus, Minus, Trash2, ShoppingCart, UserRound, Truck, ScanBarcode } from "lucide-react";
+import { Search, Plus, Minus, Trash2, ShoppingCart, UserRound, Truck, ScanBarcode, ImageIcon } from "lucide-react";
+import { productImageUrl } from "@/components/product-image-upload";
 import { cn } from "@/lib/utils";
 import type { OrderItem, SuratJalan } from "@/lib/types";
 import {
@@ -213,6 +214,8 @@ export default function NewSalePage() {
       customPrice: c.customPrice,
       discountPercent: c.discountPercent,
       subtotal: c.subtotal,
+      // Snapshot modal untuk perhitungan laba (store juga fallback ke ini).
+      costPrice: products.find((p) => p.id === c.productId)?.costPrice ?? 0,
     }));
     const order = await addOrder({
       date: new Date().toISOString().slice(0, 10),
@@ -254,6 +257,8 @@ export default function NewSalePage() {
       customPrice: c.customPrice,
       discountPercent: c.discountPercent,
       subtotal: c.subtotal,
+      // Snapshot modal untuk perhitungan laba (store juga fallback ke ini).
+      costPrice: products.find((p) => p.id === c.productId)?.costPrice ?? 0,
     }));
     await addOrder({
       date: new Date().toISOString().slice(0, 10),
@@ -314,20 +319,29 @@ export default function NewSalePage() {
               <div className="max-h-[50vh] overflow-y-auto sm:max-h-[400px]">
                 {filteredProducts.map((p) => {
                   const cat = categories.find((c) => c.id === p.categoryId);
+                  const thumb = productImageUrl(p.imagePath);
                   return (
                     <button
                       key={p.id}
                       onClick={() => addToCart(p.id)}
-                      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] hover:bg-foreground/[0.03] first:rounded-t-xl last:rounded-b-xl disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] hover:bg-foreground/[0.03] first:rounded-t-xl last:rounded-b-xl disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
                       disabled={p.stock <= 0}
                     >
-                      <div className="min-w-0">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted/30">
+                        {thumb ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={thumb} alt={p.name} className="h-full w-full object-cover" />
+                        ) : (
+                          <ImageIcon size={16} className="text-muted-foreground/40" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
                         <div className="truncate font-medium text-foreground">{p.name}</div>
                         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                           {cat ? (
                             <CategoryName c={cat} className="truncate" badgeClassName="bg-foreground/[0.07] text-[10px]" />
                           ) : (
-                            <span className="truncate font-mono">{p.barcode}</span>
+                            <span className="truncate font-mono">{p.barcode || "Tanpa barcode"}</span>
                           )}
                           <span className="shrink-0">· Stok: {p.stock}</span>
                         </div>
@@ -381,70 +395,105 @@ export default function NewSalePage() {
             {cart.length === 0 ? (
               <div className="flex flex-col items-center gap-2 px-3 py-10 text-center">
                 <ShoppingCart size={24} className="text-muted-foreground/40" />
-                <p className="text-[13px] text-muted-foreground">Keranjang kosong</p>
-                <p className="text-[11px] text-muted-foreground/60">Pilih buku di samping untuk memulai.</p>
+                <p className="text-[13px] font-medium text-foreground">Keranjang kosong</p>
+                <p className="text-[11px] text-muted-foreground">Pilih buku di samping atau scan barcode</p>
               </div>
             ) : (
-              <div className="flex flex-col gap-1 p-2">
+              <div className="flex flex-col gap-2 p-2">
+                {/* header kecil: jumlah + kosongkan */}
+                <div className="flex items-center justify-between px-1 py-1 text-[11px] text-muted-foreground">
+                  <span>{cart.reduce((a,c)=>a+c.quantity,0)} buku · {cart.length} judul</span>
+                  <button onClick={()=>setCart([])} className="text-[11px] text-destructive hover:underline">Kosongkan</button>
+                </div>
                 {cart.map((item, idx) => {
                   const itemProduct = products.find((p) => p.id === item.productId);
                   const cat = itemProduct ? categories.find((c) => c.id === itemProduct.categoryId) : undefined;
+                  const thumb = productImageUrl(itemProduct?.imagePath);
+                  const base = (item.customPrice ?? item.unitPrice) * item.quantity;
+                  const discAmt = Math.round(base * item.discountPercent / 100);
+                  const isDisc = item.discountPercent > 0;
                   return (
-                  <div key={idx} className="rounded-lg border border-border/50 bg-foreground/[0.01] p-2.5 transition-colors hover:border-border/80">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-semibold text-foreground">{item.productName}</div>
-                        {cat && (
-                          <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                            <CategoryName c={cat} badgeClassName="bg-foreground/[0.07] text-[10px]" />
-                          </div>
+                  <div key={idx} className="rounded-xl border border-border bg-card p-3 shadow-sm">
+                    {/* baris 1: gambar + nama + hapus */}
+                    <div className="flex gap-2.5">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-muted/30">
+                        {thumb ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={thumb} alt={item.productName} className="h-full w-full object-cover" />
+                        ) : (
+                          <ImageIcon size={15} className="text-muted-foreground/40" />
                         )}
-                        <div className="mt-0.5 text-[11px] text-muted-foreground">
-                          {formatRupiah(item.customPrice ?? item.unitPrice)} × {item.quantity}
-                          {item.discountPercent > 0 ? ` · -${item.discountPercent}%` : ""}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-semibold leading-tight text-foreground">{item.productName}</div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                          {cat ? <CategoryName c={cat} badgeClassName="bg-foreground/[0.07] text-[10px]" /> : <span className="font-mono">{item.productBarcode || "Tanpa barcode"}</span>}
+                          <span className="hidden sm:inline font-mono">· {item.productBarcode || "Tanpa barcode"}</span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-1.5 text-[11px]">
+                          <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-muted-foreground">{item.priceTier}</span>
+                          <span className="text-muted-foreground">{formatRupiah(item.customPrice ?? item.unitPrice)} /pcs</span>
+                          {itemProduct && <span className="text-muted-foreground/60">· stok {itemProduct.stock}</span>}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <div className="text-right">
-                          <div className="text-[13px] font-semibold text-foreground">{formatRupiah(item.subtotal)}</div>
-                          <div className="text-[10px] text-muted-foreground">subtotal</div>
-                        </div>
-                        <button onClick={() => removeFromCart(idx)} title="Hapus item" className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 size={14} /></button>
-                      </div>
+                      <button onClick={() => removeFromCart(idx)} title="Hapus" className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 size={14} /></button>
                     </div>
-                    {/* Penyesuaian */}
-                    <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-foreground/[0.03] px-2 py-1.5">
-                      {/* Quantity */}
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => updateCart(idx, { quantity: Math.max(1, item.quantity - 1) })} className="flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground"><Minus size={14} /></button>
-                        <span className="w-8 text-center text-[13px] font-medium text-foreground">{item.quantity}</span>
+
+                    {/* baris 2: qty + diskon buku */}
+                    <div className="mt-3 grid grid-cols-[auto_1fr] gap-2">
+                      <div className="flex items-center gap-0.5 rounded-lg border border-border p-0.5">
+                        <button onClick={() => updateCart(idx, { quantity: Math.max(1, item.quantity - 1) })} className="flex size-7 items-center justify-center rounded-md hover:bg-foreground/[0.06] text-foreground"><Minus size={13} /></button>
+                        <span className="w-9 text-center text-[13px] font-semibold text-foreground">{item.quantity}</span>
                         <button
                           onClick={() => updateCart(idx, { quantity: item.quantity + 1 })}
                           disabled={item.quantity >= (itemProduct?.stock ?? 0)}
-                          title={item.quantity >= (itemProduct?.stock ?? 0) ? `Stok maksimal ${itemProduct?.stock ?? 0} pcs` : undefined}
-                          className="flex size-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                        ><Plus size={14} /></button>
+                          title={item.quantity >= (itemProduct?.stock ?? 0) ? `Stok maksimal ${itemProduct?.stock ?? 0}` : undefined}
+                          className="flex size-7 items-center justify-center rounded-md hover:bg-foreground/[0.06] text-foreground disabled:opacity-30 disabled:cursor-not-allowed"
+                        ><Plus size={13} /></button>
                       </div>
-                      {/* Tier select */}
-                      <Select value={item.priceTier} onValueChange={(t) => {
-                        const product = products.find((p) => p.id === item.productId);
-                        if (product) {
-                          const newPrice = getPrice(product, t);
-                          updateCart(idx, { priceTier: t, unitPrice: newPrice, customPrice: null });
-                        }
-                      }}>
-                        <SelectTrigger variant="bordered" className="h-8 rounded-md px-2 text-[12px] font-medium min-w-0 w-auto" />
-                        <SelectContent>
-                          {["Normal", "Member", "Guru", "Sekolah", "Distributor"].map((t, i) => (
-                            <SelectItem key={t} index={i} value={t}>{t}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {/* Discount */}
-                      <div className="flex items-center gap-1">
-                        <span className="text-[12px] font-medium text-muted-foreground">-%</span>
-                        <input type="number" value={item.discountPercent} onChange={(e) => updateCart(idx, { discountPercent: Math.max(0, Math.min(100, parseInt(e.target.value) || 0)) })} className="h-8 w-14 rounded-md border border-border bg-background px-1 text-[12px] text-center focus:outline-none" min={0} max={100} />
+                      <div className="flex items-center gap-1.5 rounded-lg border border-border px-2 py-1">
+                        <span className="whitespace-nowrap text-[11px] font-medium leading-none text-muted-foreground">Diskon<br/>buku ini</span>
+                        <div className="ml-auto flex items-center gap-1">
+                          <input
+                            type="number"
+                            value={item.discountPercent || ""}
+                            placeholder="0"
+                            onChange={(e) => updateCart(idx, { discountPercent: Math.max(0, Math.min(100, parseInt(e.target.value) || 0)) })}
+                            className="h-7 w-12 rounded-md border border-border bg-background px-1 text-center text-[12px] font-medium focus:outline-none focus:ring-1 focus:ring-ring"
+                            min={0} max={100}
+                          />
+                          <span className="text-[12px] font-medium text-muted-foreground">%</span>
+                        </div>
                       </div>
+                    </div>
+
+                    {/* tier cepat */}
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {["Normal","Sekolah","Guru","Member","Distributor"].map((t) => (
+                        <button
+                          key={t}
+                          onClick={()=>{
+                            const prod = products.find((p)=>p.id===item.productId);
+                            if(!prod) return;
+                            const np = getPrice(prod, t);
+                            updateCart(idx, { priceTier: t, unitPrice: np, customPrice: null });
+                          }}
+                          className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", item.priceTier===t ? "bg-foreground text-background border-foreground" : "border-border text-muted-foreground hover:border-foreground/30")}
+                        >{t}</button>
+                      ))}
+                    </div>
+
+                    {/* kalkulasi per baris */}
+                    <div className="mt-2 flex items-center justify-between rounded-md bg-muted/50 px-2.5 py-1.5 text-[11px]">
+                      <span className="text-muted-foreground">
+                        {item.quantity} × {formatRupiah(item.customPrice ?? item.unitPrice)}
+                        {isDisc && <span className="text-destructive"> −{item.discountPercent}%</span>}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        {isDisc && <span className="text-muted-foreground line-through">{formatRupiah(base)}</span>}
+                        {isDisc && <span className="text-destructive">−{formatRupiah(discAmt)}</span>}
+                        <span className="text-[13px] font-semibold text-foreground">{formatRupiah(item.subtotal)}</span>
+                      </span>
                     </div>
                   </div>
                   );
@@ -453,28 +502,63 @@ export default function NewSalePage() {
             )}
           </div>
 
-          {/* Summary */}
-          <div className="border-t border-border px-3 py-2.5">
-            <div className="flex justify-between text-[13px]">
-              <span className="text-muted-foreground">Subtotal</span>
-              <span className="text-foreground">{formatRupiah(subtotal)}</span>
-            </div>
-            <div className="flex items-center justify-between text-[13px]">
-              <span className="text-muted-foreground">Diskon Pesanan</span>
-              <div className="flex items-center gap-1">
-                <input type="number" value={orderDiscount || ""} onChange={(e) => setOrderDiscount(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))} className="h-8 w-16 rounded-md border border-border bg-background px-1 text-[13px] text-right focus:outline-none" min={0} max={100} />
-                <span className="text-[12px] text-muted-foreground">%</span>
+          {/* Ringkasan — dipisah jelas jadi 2 kelompok diskon */}
+          <div className="border-t border-border bg-muted/20 px-3 py-3">
+            <div className="rounded-xl border border-border bg-background p-3">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Ringkasan Biaya</div>
+              <div className="space-y-1.5 text-[13px]">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Subtotal ({cart.reduce((a,c)=>a+c.quantity,0)} buku)</span>
+                  <span className="font-medium text-foreground">{formatRupiah(subtotal)}</span>
+                </div>
+                {itemDiscounts > 0 && (
+                  <div className="flex justify-between text-destructive">
+                    <span className="flex items-center gap-1.5"><span className="inline-flex size-4 items-center justify-center rounded-full bg-destructive/15 text-[10px]">−</span> Potongan per buku</span>
+                    <span className="font-medium">−{formatRupiah(itemDiscounts)}</span>
+                  </div>
+                )}
+                {itemDiscounts > 0 && (
+                  <div className="flex justify-between border-b border-dashed border-border pb-1.5 text-[11px] text-muted-foreground">
+                    <span></span><span>dari diskon di tiap baris buku</span>
+                  </div>
+                )}
+                {/* Diskon pesanan — kartu kecil terpisah */}
+                <div className={cn("rounded-lg border px-2.5 py-2", orderDiscount>0 ? "border-amber-500/30 bg-amber-500/5" : "border-dashed border-border bg-muted/30")}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[12px] font-medium text-foreground">Diskon Pesanan</span>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        value={orderDiscount || ""}
+                        placeholder="0"
+                        onChange={(e) => setOrderDiscount(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
+                        className="h-7 w-14 rounded-md border border-border bg-background px-1 text-center text-[12px] font-semibold focus:outline-none focus:ring-1 focus:ring-ring"
+                        min={0} max={100}
+                      />
+                      <span className="text-[12px] font-medium">%</span>
+                    </div>
+                  </div>
+                  <p className="mt-1 text-[10px] leading-tight text-muted-foreground">Potongan untuk <b>seluruh pesanan</b> — dihitung setelah potongan per buku.</p>
+                  {orderDiscount>0 && (
+                    <div className="mt-1 flex justify-between text-[12px] font-medium text-amber-700 dark:text-amber-400">
+                      <span>Potongan pesanan</span><span>−{formatRupiah(Math.round(subtotal * orderDiscount / 100))}</span>
+                    </div>
+                  )}
+                </div>
+                {totalDiscount>0 && (
+                  <div className="flex justify-between rounded-md bg-emerald-500/10 px-2 py-1.5 text-[12px] font-medium text-emerald-700 dark:text-emerald-400">
+                    <span>Total hemat</span><span>{formatRupiah(totalDiscount)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between border-t border-border pt-2">
+                  <span className="text-[13px] font-semibold text-foreground">Total Bayar</span>
+                  <span className="text-[18px] font-bold tracking-tight text-foreground">{formatRupiah(total)}</span>
+                </div>
               </div>
             </div>
-            {totalDiscount > 0 && (
-              <div className="flex justify-between text-[13px] text-destructive">
-                <span>Diskon</span>
-                <span>-{formatRupiah(totalDiscount)}</span>
-              </div>
-            )}
-            <div className="mt-1 flex justify-between border-t border-border pt-1.5 text-[14px] font-semibold">
-              <span className="text-foreground">Total</span>
-              <span className="text-foreground">{formatRupiah(total)}</span>
+            <div className="mt-2 flex gap-1.5 text-[10px] leading-snug text-muted-foreground">
+              <span className="shrink-0">ⓘ</span>
+              <span><b className="text-foreground">Per buku</b> atur di tiap baris (mis. buku rusak). <b className="text-foreground">Pesanan</b> untuk promo keseluruhan (mis. diskon toko 5%).</span>
             </div>
           </div>
 

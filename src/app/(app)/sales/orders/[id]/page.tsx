@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
 import { PageHeader } from "@/components/page-header";
 import { CategoryName } from "@/components/category-label";
-import { ArrowLeft, Printer, XCircle, FileText, CheckCircle2, Edit3, ShoppingCart, Archive } from "lucide-react";
+import { ArrowLeft, Printer, XCircle, FileText, CheckCircle2, Edit3, ShoppingCart, Archive, Trash2 } from "lucide-react";
 import { printSuratJalan } from "@/lib/surat-jalan";
 import { printThermalNota } from "@/lib/nota-thermal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -23,13 +23,14 @@ import {
 
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { orders, products, categories, cancelOrder, completeOrder, checkoutOrder, archiveOrder, updateSuratJalan } = useStore();
+  const { orders, products, categories, cancelOrder, completeOrder, checkoutOrder, archiveOrder, deleteOrder, updateSuratJalan } = useStore();
   const order = orders.find((o) => o.id === id);
   const [sjOpen, setSjOpen] = useState(false);
   const [completeOpen, setCompleteOpen] = useState(false);
   const [processOpen, setProcessOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [sjForm, setSjForm] = useState<SuratJalan>({
     no: "",
     tanggal: "",
@@ -149,6 +150,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                 <XCircle size={14} /> Batalkan
               </button>
             )}
+            <button onClick={() => setDeleteOpen(true)} className="flex items-center gap-1 rounded-lg border border-destructive/30 px-3 py-1.5 text-[13px] text-destructive hover:bg-destructive/10">
+              <Trash2 size={14} /> Hapus Pesanan
+            </button>
           </div>
         }
       />
@@ -363,6 +367,19 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           if (!ok) alert("Pesanan tidak dapat dibatalkan.");
         }}
         onOpenChange={setCancelOpen}
+      />
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title="Hapus Pesanan"
+        description={`Hapus permanen pesanan ${order.id}? Semua item, surat jalan, dan pergerakan stok terkait akan ikut terhapus. Aksi ini tidak dapat dibatalkan.`}
+        confirmLabel="Hapus Permanen"
+        destructive
+        onConfirm={async () => {
+          const ok = await deleteOrder(order.id);
+          if (ok) window.location.href = "/sales/orders";
+        }}
+        onOpenChange={setDeleteOpen}
       />
     </div>
   );

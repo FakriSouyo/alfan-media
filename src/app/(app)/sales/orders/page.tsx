@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { Eye, ListFilter, FileText, CheckCircle2, Printer, ShoppingCart, Archive } from "lucide-react";
+import { Eye, ListFilter, FileText, CheckCircle2, Printer, ShoppingCart, Archive, Trash2 } from "lucide-react";
 import { printSuratJalan } from "@/lib/surat-jalan";
 import { printThermalNota } from "@/lib/nota-thermal";
 import {
@@ -17,13 +17,14 @@ import {
 } from "@/components/ui/select";
 
 export default function OrdersPage() {
-  const { orders, completeOrder, checkoutOrder, archiveOrder } = useStore();
+  const { orders, completeOrder, checkoutOrder, archiveOrder, deleteOrder } = useStore();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showArchived, setShowArchived] = useState(false);
   const [completeTarget, setCompleteTarget] = useState<string | null>(null);
   const [checkoutTarget, setCheckoutTarget] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const sorted = [...orders].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   // Arsip tersembunyi kecuali di-toggle eksplisit (datanya tetap utuh di DB).
@@ -159,6 +160,13 @@ export default function OrdersPage() {
                         </button>
                       )}
                       <Link href={`/sales/orders/${o.id}`} title="Detail" className="rounded p-1 text-muted-foreground hover:text-foreground"><Eye size={14} /></Link>
+                      <button
+                        onClick={() => setDeleteTarget(o.id)}
+                        title="Hapus pesanan permanen"
+                        className="rounded p-1 text-muted-foreground hover:text-destructive"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -204,6 +212,16 @@ export default function OrdersPage() {
         confirmLabel="Arsipkan"
         onConfirm={() => { if (archiveTarget) archiveOrder(archiveTarget, true); }}
         onOpenChange={(o) => { if (!o) setArchiveTarget(null); }}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Hapus Pesanan"
+        description={deleteTarget ? `Hapus permanen pesanan ${deleteTarget}? Semua item, surat jalan, dan pergerakan stok terkait akan ikut terhapus.` : ""}
+        confirmLabel="Hapus Permanen"
+        destructive
+        onConfirm={async () => { if (deleteTarget) await deleteOrder(deleteTarget); }}
+        onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}
       />
     </div>
   );

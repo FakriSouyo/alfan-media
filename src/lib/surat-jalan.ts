@@ -1,5 +1,8 @@
 import type { Order, SuratJalan } from "./types";
-import { formatRupiah } from "./currency";
+
+/** Alamat toko — dipakai di kop surat & nota. */
+export const STORE_ADDRESS =
+  "Jl. Pattimura No.46A, Khusus Kota Selong, Kec. Selong, Kabupaten Lombok Timur, Nusa Tenggara Barat. 83619";
 
 function formatTanggal(value: string): string {
   if (!value) return "-";
@@ -51,18 +54,11 @@ export function printSuratJalan(order: Order) {
     .map(
       (it, i) => `<tr>
         <td style="text-align:center">${i + 1}</td>
-        <td>${esc(it.productName)}<br/><span style="color:#888">${esc(it.productBarcode)}</span></td>
+        <td>${esc(it.productName)}<br/><span style="color:#888;font-size:10px">Barcode: ${esc(it.productBarcode)}</span></td>
         <td style="text-align:center">${it.quantity}</td>
-        <td style="text-align:right">${formatRupiah(it.unitPrice)}</td>
-        ${it.discountPercent > 0 ? `<td style="text-align:right">${formatRupiah(it.subtotal)} <span style="color:#c0392b">(-${it.discountPercent}%)</span></td>` : `<td style="text-align:right">${formatRupiah(it.subtotal)}</td>`}
       </tr>`
     )
     .join("");
-
-  const discountRow =
-    order.discount > 0
-      ? `<div style="display:flex;justify-content:space-between;font-size:12px;color:#c0392b"><span>Diskon</span><span>-${formatRupiah(order.discount)}</span></div>`
-      : "";
 
   w.document.write(`<!DOCTYPE html><html><head><title>Surat Izin Jalan ${order.id}</title>
     <style>
@@ -77,9 +73,6 @@ export function printSuratJalan(order: Order) {
       table.items{width:100%;border-collapse:collapse;margin:6px 0 12px}
       table.items th,table.items td{padding:5px 6px;text-align:left;border-bottom:1px solid #ddd;font-size:11px}
       table.items th{background:#f5f5f5;font-weight:600}
-      .totals{max-width:300px;margin-left:auto;font-size:12px}
-      .totals>div{display:flex;justify-content:space-between;padding:2px 0}
-      .totals .total{font-weight:700;font-size:14px;border-top:1px solid #333;padding-top:6px;margin-top:4px}
       .catatan{margin:14px 0;font-size:11px}
       .catatan .box{border:1px solid #ddd;padding:8px;margin-top:4px;min-height:28px}
       .signatures{display:flex;justify-content:space-between;margin-top:48px;font-size:11px}
@@ -92,7 +85,7 @@ export function printSuratJalan(order: Order) {
     </style></head><body>
     <div class="header">
       <div class="store">ALFAN MEDIA</div>
-      <div class="sub-store">Jl. Contoh No. 123 · Telp: 021-5551234</div>
+      <div class="sub-store">${esc(STORE_ADDRESS)}</div>
       <h2>SURAT IZIN JALAN</h2>
     </div>
     <div class="info">
@@ -107,14 +100,9 @@ export function printSuratJalan(order: Order) {
       </table>
     </div>
     <table class="items">
-      <thead><tr><th style="width:6%">No</th><th>Nama Barang</th><th style="width:9%">Banyaknya</th><th style="width:18%">Harga Satuan</th><th style="width:18%">Jumlah</th></tr></thead>
+      <thead><tr><th style="width:6%">No</th><th>Nama Barang</th><th style="width:12%">Banyaknya</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <div class="totals">
-      <div><span>Subtotal</span><span>${formatRupiah(order.subtotal)}</span></div>
-      ${discountRow}
-      <div class="total"><span>Total</span><span>${formatRupiah(order.total)}</span></div>
-    </div>
     ${sj.catatan ? `<div class="catatan"><b>Catatan:</b><div class="box">${esc(sj.catatan)}</div></div>` : ""}
     <div class="signatures">
       <div><div class="role">Pengirim</div><div class="name">${esc(sj.namaPengirim || sj.pengirim)}</div>${sj.kendaraan ? `<div style="font-size:10px;color:#666">${esc(sj.kendaraan)}</div>` : ""}<div class="line">Tanda tangan &amp; Stempel</div></div>

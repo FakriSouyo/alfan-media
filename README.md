@@ -52,10 +52,16 @@ tanpa koneksi jaringan/env Supabase, dan memvalidasi skema
 DB. Jika skema berubah, sesuaikan konstanta `ENUM_COLUMNS`/`UUID_COLUMNS`/
 `DATE_COLUMNS`/`INT_COLUMNS` di file mock.
 
-Migrasi skema: file di `supabase/migration/` dijalankan berurutan (001 → 007)
-di Supabase SQL Editor. Yang terbaru: `007_category_level_to_text.sql`
-(mengubah `categories.level` dari enum 3 nilai menjadi text agar label
-`"SD I"`..`"SMA III"` bisa tersimpan).
+Migrasi skema: file di `supabase/migration/` dijalankan berurutan (001 → 012)
+di Supabase SQL Editor. Yang terbaru: `012_profit_and_image.sql` (menambah
+`products.cost_price` untuk laba, `products.image_path` untuk gambar sampul lewat
+bucket `product-images`, dan snapshot `order_items.cost_price` agar laba memakai
+modal saat barang terjual), serta `007_category_level_to_text.sql` (mengubah
+`categories.level` dari enum 3 nilai menjadi text agar label `"SD I"`..`"SMA III"`
+bisa tersimpan).
+
+Alamat toko dipakai sebagai kop surat & nota terpusat di `src/lib/surat-jalan.ts`
+(`STORE_ADDRESS`): Jl. Pattimura No.46A, Selong, Lombok Timur, NTB.
 
 Catatan lingkungan tertentu (sandbox yang memblokir `child_process.spawn`):
 jika Vitest gagal dengan `spawn EPERM`, jalankan dengan preload workaround:

@@ -13,6 +13,7 @@ import {
   ShoppingCart,
   Package,
   AlertTriangle,
+  Wallet,
 } from "lucide-react";
 
 function getGreeting() {
@@ -36,8 +37,17 @@ export default function DashboardPage() {
   const totalSalesAll = completedOrders.reduce((s, o) => s + o.total, 0);
   const lowStockProducts = products.filter((p) => p.stock <= 5);
 
+  // Laba = pendapatan bersih − jumlah modal terpakai.
+  // Modal per item di-snapshot di order_items.cost_price saat pesanan dibuat,
+  // jadi laba memakai modal yang berlaku ketika barang laku, bukan modal terkini.
+  const orderProfit = (o: (typeof orders)[number]) =>
+    o.total - o.items.reduce((s, i) => s + (i.costPrice ?? 0) * i.quantity, 0);
+  const profitToday = todayOrders.reduce((s, o) => s + orderProfit(o), 0);
+  const profitAll = completedOrders.reduce((s, o) => s + orderProfit(o), 0);
+
   const stats = [
     { label: "Penjualan Hari Ini", value: formatRupiah(totalSalesToday), icon: TrendingUp, color: "text-emerald-500" },
+    { label: "Laba Hari Ini", value: formatRupiah(profitToday), icon: Wallet, color: "text-lime-500" },
     { label: "Pesanan Hari Ini", value: String(todayOrders.length), icon: ShoppingCart, color: "text-blue-500" },
     { label: "Total Produk", value: String(products.length), icon: Package, color: "text-violet-500" },
     { label: "Stok Menipis", value: String(lowStockProducts.length), icon: AlertTriangle, color: "text-amber-500" },
@@ -69,7 +79,7 @@ export default function DashboardPage() {
       />
 
       {/* Stats */}
-      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
         {stats.map((s) => (
           <div key={s.label} className={cn("rounded-xl p-3", surfaceClasses(substrate + 1))}>
             <div className="flex items-center gap-2">

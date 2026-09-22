@@ -38,6 +38,8 @@ type ProductRow = {
   published_year: number | null;
   semester: "Ganjil" | "Genap";
   stock: number;
+  cost_price: number;
+  image_path: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -85,6 +87,7 @@ type OrderItemRow = {
   custom_price: number | null;
   discount_percent: number;
   subtotal: number;
+  cost_price: number;
   created_at: string;
 };
 type StockMovementRow = {
@@ -132,6 +135,8 @@ const toProduct = (r: ProductRow, prices: ProductPriceRow[]): Product => ({
     price: p.price,
     isDefault: p.is_default,
   })),
+  costPrice: r.cost_price ?? 0,
+  imagePath: r.image_path ?? undefined,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
 });
@@ -158,6 +163,7 @@ const toOrder = (r: OrderRow, items: OrderItemRow[], sj?: SuratJalan): Order => 
     customPrice: i.custom_price,
     discountPercent: Number(i.discount_percent),
     subtotal: i.subtotal,
+    costPrice: i.cost_price ?? 0,
   })),
   subtotal: r.subtotal,
   discount: r.discount,
@@ -233,6 +239,8 @@ interface StoreValue {
   cancelOrder: (id: string) => Promise<boolean>;
   /** Arsipkan/pulihkan: sembunyikan dari daftar, data (stok & laporan) utuh. */
   archiveOrder: (id: string, archived: boolean) => Promise<void>;
+  /** Hapus pesanan permanen beserta data terkait (items, surat jalan, movements). */
+  deleteOrder: (id: string) => Promise<boolean>;
   getNextInvoiceId: () => Promise<string>;
 
   // Stock
@@ -382,6 +390,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           published_year: p.publishedYear,
           semester: p.semester,
           stock: 0,
+          cost_price: p.costPrice ?? 0,
+          image_path: p.imagePath ?? null,
         })
         .select()
         .single();
@@ -440,6 +450,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (p.description !== undefined) patch.description = p.description;
       if (p.publishedYear !== undefined) patch.published_year = p.publishedYear;
       if (p.semester !== undefined) patch.semester = p.semester;
+      if (p.costPrice !== undefined) patch.cost_price = p.costPrice;
+      if (p.imagePath !== undefined) patch.image_path = p.imagePath || null;
       // CATATAN: `stock` TIDAK boleh ditulis langsung — dikalkulasi ulang dari
       // stock_movements oleh trigger sync_product_stock (pasca-migrasi).
       // Ubah stok lewat adjustStock() (movement ADJUSTMENT).
@@ -620,6 +632,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             custom_price: i.customPrice,
             discount_percent: i.discountPercent,
             subtotal: i.subtotal,
+            // Snapshot modal saat dijual agar laba memakai modal yang berlaku
+            // sekarang, bukan modal yang mungkin berubah setelahnya.
+            cost_price:
+              i.costPrice ??
+              products.find((pr) => pr.id === i.productId)?.costPrice ??
+              0,
           }))
         );
         if (itemsErr) console.error(formatError(itemsErr, "addOrder items"));
@@ -664,7 +682,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         updatedAt: orderRow.updated_at,
       };
     },
-    [supabase, getNextInvoiceId, refresh, deductStockAndRecord]
+    [supabase, getNextInvoiceId, refresh, deductStockAndRecord, products]
   );
 
   const updateOrder = useCallback(
@@ -879,6 +897,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [supabase, refresh]
   );
 
+  // Hapus permanen: orders ON DELETE CASCADE akan menghapus order_items,
+  // surat_jalans, order_revisions, dll. Stock movements yang merujuk invoice
+  // (reference = invoice_no) ikut dibersihkan manual agar stok kembali sinkron.
+  const deleteOrder = useCallback(
+    async (id: string): Promise<boolean> => {
+      const { data: row, error: findErr } = await supabase
+        .from("orders")
+        .select("id")
+        .eq("invoice_no", id)
+        .single();
+      if (findErr || !row) {
+        console.error(formatError(findErr, "deleteOrder find"));
+        return false;
+      }
+      // Hapus movements SALE/RETURN/CANCELLED_ORDER yang terikat invoice ini terlebih dulu
+      // agar trigger sync_product_stock menghitung ulang stok dengan benar.
+      await supabase.from("stock_movements").delete().eq("reference", id);
+      const { error } = await supabase.from("orders").delete().eq("id", row.id);
+      if (error) {
+        console.error(formatError(error, "deleteOrder"));
+        return false;
+      }
+      await refresh();
+      return true;
+    },
+    [supabase, refresh]
+  );
+
   // ─── Stock ─────────────────────────────────────────────────────────────
   const adjustStock = useCallback(
     async (productId: string, qty: number, reference: string) => {
@@ -919,6 +965,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         getNextInvoiceId,
         adjustStock,
         archiveOrder,
+        deleteOrder,
         refresh,
       }}
     >

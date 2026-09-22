@@ -56,6 +56,8 @@ export interface CreateProductParams {
   level?: string;
   barcode: string;
   sellingPrice: number;
+  /** Harga awal / modal per unit (opsional; default 0). */
+  costPrice?: number;
   description: string;
   publishedYear: number;
   semester: "Ganjil" | "Genap";
@@ -77,6 +79,8 @@ export function validateCreateProduct(p: unknown): ValidateResult<CreateProductP
   }
   if (!isBarcode(o.barcode)) errors.push({ field: "barcode", message: "barcode harus 12–14 digit angka" });
   if (!isPrice(o.sellingPrice)) errors.push({ field: "sellingPrice", message: "harga jual tidak valid" });
+  if (o.costPrice != null && !isPrice(o.costPrice))
+    errors.push({ field: "costPrice", message: "harga awal tidak valid" });
   if (o.description != null && !isStringMax(o.description, 2000))
     errors.push({ field: "description", message: "deskripsi terlalu panjang" });
   if (!isYear(o.publishedYear)) errors.push({ field: "publishedYear", message: "tahun terbit tidak valid" });
@@ -92,6 +96,7 @@ export function validateCreateProduct(p: unknown): ValidateResult<CreateProductP
       level,
       barcode: String(o.barcode).trim(),
       sellingPrice: o.sellingPrice as number,
+      costPrice: o.costPrice != null ? (o.costPrice as number) : undefined,
       description: isNonEmptyString(o.description, 2000) ? String(o.description).trim() : "",
       publishedYear: o.publishedYear as number,
       semester: o.semester as "Ganjil" | "Genap",
@@ -109,6 +114,8 @@ export interface UpdateProductParams {
   categoryId?: string;
   /** New price for the default (Normal) tier. */
   price?: number;
+  /** New harga awal / modal per unit. */
+  costPrice?: number;
 }
 
 export function validateUpdateProduct(p: unknown): ValidateResult<UpdateProductParams> {
@@ -127,6 +134,8 @@ export function validateUpdateProduct(p: unknown): ValidateResult<UpdateProductP
     errors.push({ field: "categoryId", message: "kategori tidak valid" });
   if (o.price != null && !isPrice(o.price))
     errors.push({ field: "price", message: "harga tidak valid" });
+  if (o.costPrice != null && !isPrice(o.costPrice))
+    errors.push({ field: "costPrice", message: "harga awal tidak valid" });
   if (errors.length) return { ok: false, errors };
   const value: UpdateProductParams = { id: o.id as string };
   if (o.name != null) value.name = String(o.name).trim();
@@ -135,6 +144,7 @@ export function validateUpdateProduct(p: unknown): ValidateResult<UpdateProductP
   if (o.semester != null) value.semester = o.semester as "Ganjil" | "Genap";
   if (o.categoryId != null) value.categoryId = o.categoryId as string;
   if (o.price != null) value.price = o.price as number;
+  if (o.costPrice != null) value.costPrice = o.costPrice as number;
   return { ok: true, value };
 }
 

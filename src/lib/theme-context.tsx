@@ -25,14 +25,14 @@ const STORAGE_KEY = "tokobuku_theme";
  *  current `.dark` class, else dark). Used both here and by the root layout if
  *  it wants to avoid a flash. */
 function initialTheme(): Theme {
-  if (typeof window === "undefined") return "dark";
+  if (typeof window === "undefined") return "light";
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === "light" || stored === "dark") return stored;
   } catch {
     // ignore
   }
-  return "dark";
+  return "light";
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

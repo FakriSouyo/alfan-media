@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store-context";
 import { PageHeader } from "@/components/page-header";
 import { CategoryName } from "@/components/category-label";
-import { Plus, Trash2, Tags } from "lucide-react";
+import { ProductImageUpload } from "@/components/product-image-upload";
+import { Plus, Trash2, Tags, Banknote } from "lucide-react";
 import {
   Select,
   SelectTrigger,
@@ -30,6 +31,8 @@ export default function NewProductPage() {
   const [publishedYear, setPublishedYear] = useState(new Date().getFullYear());
   const [semester, setSemester] = useState<"Ganjil" | "Genap">("Ganjil");
   const [stock, setStock] = useState(0);
+  const [costPrice, setCostPrice] = useState(0);
+  const [imagePath, setImagePath] = useState("");
   const [prices, setPrices] = useState<PriceTier[]>([
     { tierName: "Normal", price: 0, isDefault: true },
   ]);
@@ -72,12 +75,19 @@ export default function NewProductPage() {
       }
     }
     if (!categoryId) e.categoryId = "Kategori wajib dipilih";
-    if (!barcode.trim()) e.barcode = "Barcode wajib diisi";
-    else if (products.some((p) => p.barcode === barcode.trim())) e.barcode = "Barcode sudah digunakan";
+    if (barcode.trim() && products.some((p) => p.barcode === barcode.trim())) e.barcode = "Barcode sudah digunakan";
     if (!description.trim()) e.description = "Deskripsi wajib diisi";
     if (publishedYear < 1900 || publishedYear > new Date().getFullYear() + 1) e.publishedYear = "Tahun tidak valid";
     if (stock < 0) e.stock = "Stok tidak boleh negatif";
+    if (costPrice < 0) e.costPrice = "Harga awal tidak boleh negatif";
     if (prices.length === 0 || prices.every((p) => p.price <= 0)) e.prices = "Minimal satu harga harus diisi";
+    else {
+      // Jual di bawah modal tidak masuk akal — beri peringatan jelas.
+      const sell = prices.find((p) => p.isDefault)?.price ?? prices[0]?.price ?? 0;
+      if (costPrice > 0 && sell > 0 && sell < costPrice) {
+        e.prices = "Harga jual default lebih rendah dari harga awal — cek lagi (akan rugi).";
+      }
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -92,6 +102,8 @@ export default function NewProductPage() {
       publishedYear,
       semester,
       stock,
+      costPrice,
+      imagePath: imagePath || undefined,
       prices: prices.map((p, i) => ({ id: "pp-new-" + i, ...p })),
     });
     router.push("/stock/products");
@@ -101,10 +113,15 @@ export default function NewProductPage() {
 
   return (
     <div className="p-4 lg:p-6">
-      <PageHeader title="Tambah Produk" description="Isi data produk baru." />
+      <PageHeader title="Tambah Produk" description="Isi data utama produk. Field bertanda * wajib diisi." />
 
-      <div className="mt-4 max-w-5xl rounded-xl border border-border bg-background p-4 lg:p-5">
+      <div className="mt-4 w-full rounded-xl border border-border bg-background p-4 lg:p-5">
         <h3 className="mb-4 text-[14px] font-semibold text-foreground">Informasi Produk</h3>
+
+        <div className="mb-4">
+          <label className="mb-1 block text-[12px] font-medium text-foreground">Gambar Sampul</label>
+          <ProductImageUpload value={imagePath || undefined} onChange={setImagePath} />
+        </div>
 
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -121,8 +138,19 @@ export default function NewProductPage() {
               />
             </Field>
 
-            <Field label="Barcode Produk *" error={errors.barcode}>
-              <input value={barcode} onChange={(e) => setBarcode(e.target.value)} className={inputClass} />
+            <Field
+              label="Barcode Produk (opsional)"
+              error={errors.barcode}
+              hint="Boleh dikosongkan jika produk belum memiliki barcode."
+            >
+              <input
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                placeholder="Boleh dikosongkan"
+                inputMode="numeric"
+                autoComplete="off"
+                className={inputClass}
+              />
             </Field>
           </div>
 
@@ -157,9 +185,29 @@ export default function NewProductPage() {
             </Field>
           </div>
 
-          <Field label="Stok *" error={errors.stock}>
-            <input type="number" value={stock} onChange={(e) => setStock(parseInt(e.target.value) || 0)} min={0} className={inputClass} />
-          </Field>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label="Stok Awal *" error={errors.stock}>
+              <input type="number" value={stock} onChange={(e) => setStock(parseInt(e.target.value) || 0)} min={0} className={inputClass} />
+            </Field>
+
+            <Field
+              label="Harga Awal (Modal) *"
+              error={errors.costPrice}
+              hint="Biaya beli per unit. Dipakai menghitung laba: Laba = Harga Jual − Modal."
+            >
+              <div className="relative">
+                <Banknote size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="number"
+                  value={costPrice || ""}
+                  onChange={(e) => setCostPrice(parseInt(e.target.value) || 0)}
+                  min={0}
+                  placeholder="cth: 50000"
+                  className={inputClass + " pl-8"}
+                />
+              </div>
+            </Field>
+          </div>
 
           <Field label="Deskripsi / Keterangan Buku *" error={errors.description}>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className={inputClass} />

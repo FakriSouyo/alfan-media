@@ -9,8 +9,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Alfan Media",
-  description: "Sistem inventaris & penjualan Alfan Media",
+  title: "Toko Buku Alfan Media",
+  description: "Kelola produk, stok, penjualan, dan laporan Alfan Media",
   icons: {
     icon: [
       { url: "/favicon/favicon.ico", sizes: "any" },
@@ -26,7 +26,7 @@ export default function RootLayout({
   children,
 }: LayoutProps<"/">) {
   return (
-    <html lang="id" className={`${inter.variable} h-full antialiased dark`} suppressHydrationWarning>
+    <html lang="id" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full">
         <Providers>{children}</Providers>
       </body>

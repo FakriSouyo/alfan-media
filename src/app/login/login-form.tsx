@@ -72,11 +72,10 @@ export function LoginForm() {
           className="text-[28px] leading-tight tracking-tight text-foreground"
           style={{ fontVariationSettings: fontWeights.semibold }}
         >
-          Welcome back
+          Selamat datang kembali
         </h1>
         <p className="text-[14px] leading-relaxed text-muted-foreground">
-          Log in to your Alfan Media dashboard to manage books, orders, and
-          inventory.
+          Masuk untuk mengelola produk, stok, penjualan, dan laporan toko.
         </p>
       </div>
 
@@ -89,9 +88,9 @@ export function LoginForm() {
         <InputGroup size="default" className="w-full">
           <InputField
             index={0}
-            label="Email address"
+            label="Alamat email"
             type="email"
-            placeholder="name@email.com"
+            placeholder="nama@email.com"
             autoComplete="email"
             value={email}
             onChange={(value) => {
@@ -102,9 +101,9 @@ export function LoginForm() {
           />
           <InputField
             index={1}
-            label="Password"
+            label="Kata sandi"
             type="password"
-            placeholder="Type your password here"
+            placeholder="Masukkan kata sandi"
             autoComplete="current-password"
             value={password}
             onChange={(value) => {
@@ -121,31 +120,31 @@ export function LoginForm() {
             className="cursor-pointer text-[12px] text-muted-foreground transition-colors duration-80 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)] rounded-sm"
             style={{ fontVariationSettings: fontWeights.medium }}
           >
-            Forgot password?
+            Lupa kata sandi?
           </button>
         </div>
 
         <Button type="submit" variant="primary" loading={submitting} className="h-10 w-full text-[14px]">
-          Sign In
+          Masuk
         </Button>
       </form>
 
       <p className="mt-8 text-center text-[12px] text-muted-foreground">
-        By continuing you agree to our{" "}
+        Dengan melanjutkan, Anda menyetujui{" "}
         <a
           href="#"
           className="text-foreground underline-offset-4 hover:underline"
           style={{ fontVariationSettings: fontWeights.medium }}
         >
-          Terms
+          Ketentuan
         </a>{" "}
-        and{" "}
+        dan{" "}
         <a
           href="#"
           className="text-foreground underline-offset-4 hover:underline"
           style={{ fontVariationSettings: fontWeights.medium }}
         >
-          Privacy Policy
+          Kebijakan Privasi
         </a>
         .
       </p>

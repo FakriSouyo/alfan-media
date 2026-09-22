@@ -176,12 +176,18 @@ function blocksForTool(name: string, data: unknown): ResultBlock[] {
     }
     case "get_product": {
       const p = d as unknown as ProductView;
+      const margin =
+        p.defaultPrice != null && p.costPrice != null
+          ? formatIDR(p.defaultPrice - p.costPrice)
+          : null;
       return [
         resultBlock(p.name, "info", [
           { label: "Kategori", value: p.category ?? "—" },
           { label: "Barcode", value: p.barcode },
           { label: "Stok", value: `${formatInt(p.stock)} pcs` },
           { label: "Harga Jual", value: p.defaultPrice != null ? formatIDR(p.defaultPrice) : "—" },
+          ...(p.costPrice != null && p.costPrice > 0 ? [{ label: "Harga Awal (Modal)", value: formatIDR(p.costPrice) }] : []),
+          ...(margin != null ? [{ label: "Laba per Unit", value: margin }] : []),
           { label: "Tahun/Semester", value: `${p.publishedYear}/${p.semester}` },
         ]),
         ...filterActions([navToProduct(p.id, "Lihat Detail Produk")]),
@@ -204,12 +210,22 @@ function blocksForTool(name: string, data: unknown): ResultBlock[] {
     }
     case "create_product": {
       const p = d.product as ProductView;
+      const margin =
+        p.defaultPrice != null && p.costPrice != null
+          ? formatIDR(p.defaultPrice - p.costPrice)
+          : null;
       return [
         resultBlock("Produk berhasil ditambahkan", "success", [
           { label: "Produk", value: p.name },
           { label: "Kategori", value: d.categoryCreated ? `${p.category ?? "—"} (dibuat baru)` : p.category ?? "—" },
           { label: "Barcode", value: p.barcode },
           { label: "Harga Jual", value: formatIDR(p.defaultPrice ?? 0) },
+          ...(p.costPrice != null && p.costPrice > 0
+            ? [
+                { label: "Harga Awal (Modal)", value: formatIDR(p.costPrice) },
+                ...(margin != null ? [{ label: "Laba per Unit", value: margin }] : []),
+              ]
+            : []),
           { label: "Stok Awal", value: `${formatInt(p.stock)} pcs` },
         ]),
         ...filterActions([navToProduct(p.id, "Lihat Produk"), navTo("products", "Lihat Inventori")]),

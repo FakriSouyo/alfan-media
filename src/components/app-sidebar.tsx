@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
@@ -25,7 +25,6 @@ import {
   SidebarMenuSubButton,
   SidebarTrigger,
   SidebarRail,
-  SidebarInput,
 } from "@/components/ui/sidebar";
 import {
   DropdownMenu,
@@ -47,6 +46,7 @@ import {
   ChevronRight,
   CircleUserRound,
   Sparkles,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -59,7 +59,6 @@ type NavItem = {
 };
 
 const nav: NavItem[] = [
-  { label: "AI Assistant", href: "/agent", icon: Sparkles },
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   {
     label: "Produk",
@@ -91,22 +90,23 @@ const nav: NavItem[] = [
   },
 ];
 
-function isChildActive(pathname: string, child: NavChild): boolean {
-  return pathname === child.href;
+function isParentActive(pathname: string, item: NavItem) {
+  return pathname === item.href || pathname.startsWith(`${item.href}/`);
 }
 
-function isParentActive(pathname: string, item: NavItem): boolean {
-  if (!item.children) return false;
-  return item.children.some((c) => isChildActive(pathname, c));
+function activePage(pathname: string) {
+  for (const item of nav) {
+    const child = item.children?.find((entry) => pathname === entry.href);
+    if (child) return { section: item.label, label: child.label };
+    if (isParentActive(pathname, item)) return { section: item.label, label: item.label };
+  }
+  if (pathname === "/agent") return { section: "Asisten", label: "Asisten AI" };
+  if (pathname === "/settings") return { section: "Akun", label: "Pengaturan" };
+  return { section: "Workspace", label: "Halaman" };
 }
 
-interface AppSidebarLayoutProps {
-  children: React.ReactNode;
-}
-
-export function AppSidebarLayout({ children }: AppSidebarLayoutProps) {
+export function AppSidebarLayout({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(true);
-  // One level of nested nav — default parents open (matches the demo).
   const [openParents, setOpenParents] = useState<Record<string, boolean>>({
     Produk: true,
     Penjualan: true,
@@ -116,63 +116,63 @@ export function AppSidebarLayout({ children }: AppSidebarLayoutProps) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const page = useMemo(() => activePage(pathname), [pathname]);
 
   const toggleParent = (label: string) =>
-    setOpenParents((p) => ({ ...p, [label]: !p[label] }));
-
-  const handleLogout = () => {
-    // AuthGuard (in the (app) layout) redirects to /login once user is null.
-    logout();
-  };
+    setOpenParents((state) => ({ ...state, [label]: !state[label] }));
 
   return (
     <SidebarProvider open={open} onOpenChange={setOpen}>
       <Sidebar variant="inset" side="left" collapsible="offcanvas">
-        <SidebarHeader>
+        <SidebarHeader className="gap-3 p-3">
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton size="default">
-                <Image
-                  src="/logo.webp"
-                  alt="Logo Alfan Media"
-                  width={24}
-                  height={24}
-                  className="size-6 shrink-0 rounded-[4px] object-contain"
-                />
-                <span className="text-[13px] font-semibold">Alfan Media</span>
+              <SidebarMenuButton size="lg" className="h-auto min-h-12 px-2 py-2 hover:bg-transparent">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-foreground text-background shadow-sm">
+                  <Image
+                    src="/logo.webp"
+                    alt="Logo Alfan Media"
+                    width={25}
+                    height={25}
+                    className="size-6 object-contain brightness-0 invert"
+                  />
+                </span>
+                <span className="flex min-w-0 flex-col text-left">
+                  <span className="truncate text-[14px] font-semibold text-foreground">Alfan Media</span>
+                  <span className="truncate text-[11px] text-muted-foreground">Operasional toko buku</span>
+                </span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
 
-          <SidebarInput placeholder="Cari…" aria-label="Cari" />
+          <Link
+            href="/sales/new"
+            className="flex h-9 items-center justify-center gap-1.5 rounded-lg bg-foreground px-3 text-[12px] font-semibold text-background shadow-sm transition-opacity hover:opacity-85"
+          >
+            <Plus size={14} /> Penjualan baru
+          </Link>
         </SidebarHeader>
 
         <SidebarContent>
           <SidebarGroup defaultOpen>
-            <SidebarGroupLabel>Workspace</SidebarGroupLabel>
+            <SidebarGroupLabel className="px-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+              Menu utama
+            </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {nav.map((item) => {
+                  const hasChildren = Boolean(item.children);
                   const openState = openParents[item.label] ?? false;
+                  const active = isParentActive(pathname, item);
                   return (
                     <SidebarMenuItem key={item.label}>
                       <SidebarMenuButton
-                        asChild={!item.children}
-                        // A parent row is a toggle (not a link); it stays
-                        // contextually active while a child is selected, but
-                        // the actual highlight belongs to the child row.
-                        isActive={
-                          isParentActive(pathname, item) ||
-                          (!item.children && pathname === item.href)
-                        }
+                        asChild={!hasChildren}
                         icon={item.icon}
-                        onClick={
-                          item.children
-                            ? () => toggleParent(item.label)
-                            : undefined
-                        }
+                        isActive={active}
+                        onClick={hasChildren ? () => toggleParent(item.label) : undefined}
                       >
-                        {item.children ? (
+                        {hasChildren ? (
                           <span className="flex-1 text-left">{item.label}</span>
                         ) : (
                           <Link href={item.href}>
@@ -181,7 +181,7 @@ export function AppSidebarLayout({ children }: AppSidebarLayoutProps) {
                         )}
                       </SidebarMenuButton>
 
-                      {item.children && (
+                      {hasChildren && (
                         <>
                           <SidebarMenuAction
                             onClick={() => toggleParent(item.label)}
@@ -190,23 +190,16 @@ export function AppSidebarLayout({ children }: AppSidebarLayoutProps) {
                           >
                             <ChevronRight
                               size={14}
-                              className={cn(
-                                "transition-transform duration-150",
-                                openState && "rotate-90"
-                              )}
+                              className={cn("transition-transform duration-150", openState && "rotate-90")}
                             />
                             <span className="sr-only">
                               {openState ? "Tutup" : "Buka"} {item.label}
                             </span>
                           </SidebarMenuAction>
-
                           <SidebarMenuSub open={openState}>
-                            {item.children.map((child) => (
+                            {item.children?.map((child) => (
                               <SidebarMenuSubItem key={child.href}>
-                                <SidebarMenuSubButton
-                                  asChild
-                                  isActive={isChildActive(pathname, child)}
-                                >
+                                <SidebarMenuSubButton asChild isActive={pathname === child.href}>
                                   <Link href={child.href}>
                                     <span>{child.label}</span>
                                   </Link>
@@ -222,96 +215,83 @@ export function AppSidebarLayout({ children }: AppSidebarLayoutProps) {
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+
+          <SidebarGroup className="mt-auto">
+            <SidebarGroupLabel className="px-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+              Bantuan kerja
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild icon={Sparkles} isActive={pathname === "/agent"}>
+                    <Link href="/agent"><span>Asisten AI</span></Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
         </SidebarContent>
 
-        <SidebarFooter>
-          {/* Profile row — clicking opens a contextual menu elevated above the
-              sidebar (same surface system, no separate palette). */}
+        <SidebarFooter className="p-3">
           <DropdownMenu>
             <DropdownTrigger
               render={
-                <button
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left outline-none transition-colors duration-80 hover:bg-hover focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)] [&[data-state=open]]:bg-active"
-                >
-                  <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-[11px] font-semibold text-foreground">
+                <button className="flex w-full items-center gap-2 rounded-xl border border-border/70 bg-background/70 p-2 text-left outline-none transition-colors hover:bg-hover focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#737373)] [&[data-state=open]]:bg-active">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground text-[11px] font-semibold text-background">
                     {user?.name?.charAt(0) ?? "A"}
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-[13px] font-medium text-foreground">
-                      {user?.name}
-                    </span>
-                    <span className="truncate text-[11px] text-muted-foreground">
-                      {user?.email}
-                    </span>
+                    <span className="truncate text-[12px] font-semibold text-foreground">{user?.name}</span>
+                    <span className="truncate text-[10px] text-muted-foreground">{user?.role === "admin" ? "Administrator" : "Staff"}</span>
                   </span>
-                  <ChevronRight
-                    size={14}
-                    className="shrink-0 text-muted-foreground"
-                  />
+                  <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
                 </button>
               }
               className="w-full"
             />
-
-            <DropdownContent side="top" align="start" className="w-[220px]">
+            <DropdownContent side="top" align="start" className="w-[230px]">
               <DropdownLabel>
                 {user?.name}
-                <span className="block truncate text-muted-foreground">
-                  {user?.email}
-                </span>
+                <span className="block truncate text-muted-foreground">{user?.email}</span>
               </DropdownLabel>
-
-              <MenuItem
-                index={0}
-                icon={CircleUserRound}
-                label="Profil"
-                onSelect={() => {}}
-              />
-
-              <MenuItem
-                index={1}
-                icon={Settings}
-                label="Pengaturan"
-                onSelect={() => {
-                  router.push("/settings");
-                }}
-              />
-
+              <MenuItem index={0} icon={CircleUserRound} label="Profil" onSelect={() => {}} />
+              <MenuItem index={1} icon={Settings} label="Pengaturan" onSelect={() => router.push("/settings")} />
               <DropdownSeparator />
-
-              {/* Light-mode toggle lives inside the profile menu (#6). A
-                  checked radio shows the current mode; selecting toggles the
-                  app theme through the shared ThemeProvider. */}
               <MenuItem
                 index={2}
                 icon={theme === "dark" ? Sun : Moon}
-                label={theme === "dark" ? "Mode terang" : "Mode gelap"}
-                checked={theme === "light"}
+                label={theme === "dark" ? "Gunakan mode terang" : "Gunakan mode gelap"}
                 onSelect={toggleTheme}
                 closeOnClick={false}
               />
-
               <DropdownSeparator />
-
-              <MenuItem
-                index={3}
-                icon={LogOut}
-                label="Keluar"
-                onSelect={handleLogout}
-                className="text-destructive [&_svg]:text-destructive"
-              />
+              <MenuItem index={3} icon={LogOut} label="Keluar" onSelect={logout} className="text-destructive [&_svg]:text-destructive" />
             </DropdownContent>
           </DropdownMenu>
         </SidebarFooter>
-
         <SidebarRail />
       </Sidebar>
 
       <SidebarInset>
-        <header className="flex h-12 shrink-0 items-center gap-2 px-1.5">
-          <SidebarTrigger />
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border/80 bg-background/85 px-3 backdrop-blur-xl sm:px-5 lg:px-7">
+          <div className="flex min-w-0 items-center gap-3">
+            <SidebarTrigger className="size-8 rounded-lg border border-border/70 bg-card text-muted-foreground hover:bg-hover hover:text-foreground" />
+            <div className="hidden min-w-0 items-center gap-2 text-[12px] sm:flex">
+              <span className="text-muted-foreground">{page.section}</span>
+              <ChevronRight size={13} className="shrink-0 text-muted-foreground/60" />
+              <span className="truncate font-medium text-foreground">{page.label}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={theme === "dark" ? "Gunakan mode terang" : "Gunakan mode gelap"}
+            className="flex size-8 items-center justify-center rounded-lg border border-border/70 bg-card text-muted-foreground transition-colors hover:bg-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#737373)]"
+          >
+            {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
         </header>
-        {children}
+        <div className="app-page flex-1">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   );

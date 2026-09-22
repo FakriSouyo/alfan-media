@@ -26,7 +26,7 @@ const order: Order = {
   customerId: null,
   customerName: "Ibu <Siti>",
   items: [
-    { id: "1", productId: "p1", productName: "Buku <A>", productBarcode: "BC1", quantity: 2, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 100000 },
+    { id: "1", productId: "p1", productName: "Buku <A>", productBarcode: "BC1", quantity: 2, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 100000, costPrice: 30000 },
   ],
   subtotal: 100000,
   discount: 5000,
