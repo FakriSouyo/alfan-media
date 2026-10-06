@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
@@ -265,8 +265,11 @@ export default function ProductsPage() {
                 const isExp = expandedId === p.id;
                 const labaColor = labaPcs > 0 ? "text-emerald-600 dark:text-emerald-400" : labaPcs < 0 ? "text-destructive" : "text-muted-foreground";
                 return (
-                <>
-                <tr key={p.id} className={`border-b border-border/50 last:border-0 hover:bg-foreground/[0.02] ${isExp ? "bg-muted/30" : ""}`}>
+                // The key belongs on the fragment: it is the element the map
+                // returns, and each entry renders a main row plus an optional
+                // detail row.
+                <Fragment key={p.id}>
+                <tr className={`border-b border-border/50 last:border-0 hover:bg-foreground/[0.02] ${isExp ? "bg-muted/30" : ""}`}>
                   <td className="px-2 py-2">
                     <button onClick={()=> setExpandedId(isExp ? null : p.id)} className="flex size-6 items-center justify-center rounded-md border border-border bg-background hover:bg-foreground/[0.06]">
                       {isExp ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
@@ -398,7 +401,7 @@ export default function ProductsPage() {
                     </td>
                   </tr>
                 )}
-                </>
+                </Fragment>
                 );
               })}
               {filtered.length === 0 && (

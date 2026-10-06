@@ -128,15 +128,17 @@ export function AppSidebarLayout({ children }: { children: React.ReactNode }) {
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" className="h-auto min-h-12 px-2 py-2 hover:bg-transparent">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-foreground text-background shadow-sm">
-                  <Image
-                    src="/logo.webp"
-                    alt="Logo Alfan Media"
-                    width={25}
-                    height={25}
-                    className="size-6 object-contain brightness-0 invert"
-                  />
-                </span>
+                {/* The mark ships in two cuts — the dark-mode artwork uses
+                    brighter blues and is meant for the dark sidebar surface. */}
+                <Image
+                  src={theme === "dark" ? "/brand/mark-dark.webp" : "/brand/mark-light.webp"}
+                  alt="Logo Alfan Media"
+                  width={128}
+                  height={61}
+                  sizes="48px"
+                  loading="eager"
+                  className="h-5 w-auto shrink-0 object-contain"
+                />
                 <span className="flex min-w-0 flex-col text-left">
                   <span className="truncate text-[14px] font-semibold text-foreground">Alfan Media</span>
                   <span className="truncate text-[11px] text-muted-foreground">Operasional toko buku</span>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputField } from "@/components/ui/input-group";
@@ -55,18 +56,17 @@ export function LoginForm() {
     <div className="w-full max-w-sm">
       <div className="flex flex-col gap-2">
         {/* Brand mark — visible here so the right column doesn't have to carry
-            the whole identity. Square tile with a layered gradient echo of the
-            brand panel. */}
-        <div
-          className="mb-2 inline-flex size-10 items-center justify-center rounded-xl ring-1 ring-inset ring-foreground/15 bg-foreground/5 text-foreground"
-        >
-          <span
-            className="text-[15px] tracking-tight"
-            style={{ fontVariationSettings: fontWeights.bold }}
-          >
-            t
-          </span>
-        </div>
+            the whole identity. This column is always dark, so it uses the
+            dark-mode cut of the wordmark regardless of the stored theme. */}
+        <Image
+          src="/brand/logo-dark.webp"
+          alt="Alfan Media"
+          width={200}
+          height={119}
+          sizes="70px"
+          loading="eager"
+          className="mb-3 h-10 w-auto object-contain"
+        />
 
         <h1
           className="text-[28px] leading-tight tracking-tight text-foreground"
