@@ -15,16 +15,24 @@
  * isolasi saat mount ulang komponen stateful penuh.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from "vitest";
-import { render, waitFor, act, cleanup } from "@testing-library/react";
+import { renderHook, waitFor, act, cleanup } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { StoreProvider, useStore } from "@/lib/store-context";
 import { MockSupabase, type Row } from "./mocks/mock-supabase";
 
 type StoreValue = ReturnType<typeof useStore>;
+declare global {
+  var __mockSupabase: MockSupabase | undefined;
+}
+const testAuth = vi.hoisted(() => ({ user: { id: "88888888-8888-4888-8888-888888888888" } as { id: string } | null, loading: false }));
 
 // Mock browser client agar StoreProvider memakai fake DB (bukan createBrowserClient
 // sungguhan yang butuh env NEXT_PUBLIC_SUPABASE_URL).
 vi.mock("@/lib/supabase/browser", () => ({
-  getSupabaseBrowserClient: () => (globalThis as any).__mockSupabase,
+  getSupabaseBrowserClient: () => globalThis.__mockSupabase,
+}));
+vi.mock("@/lib/auth-context", () => ({
+  useAuth: () => ({ ...testAuth, error: null }),
 }));
 
 // id seed harus uuid sungguhan karena mock memvalidasi kolom uuid.
@@ -36,6 +44,8 @@ const ID = {
   o1: "55555555-5555-4555-8555-555555555555",
   oi1: "66666666-6666-4666-8666-666666666666",
   m1: "77777777-7777-4777-8777-777777777777",
+  m2: "77777777-7777-4777-8777-777777777778",
+  m3: "77777777-7777-4777-8777-777777777779",
 } as const;
 
 function seedDb(): Record<string, Row[]> {
@@ -60,6 +70,7 @@ function seedDb(): Record<string, Row[]> {
     ],
     stock_movements: [
       { id: ID.m1, product_id: ID.p1, type: "INITIAL", quantity: 12, reference: "awal", notes: null, created_by: null, created_at: "2026-01-01" },
+      { id: ID.m2, product_id: ID.p1, type: "SALE", quantity: -2, reference: "INV-001", notes: null, created_by: null, created_at: "2026-08-27" },
     ],
     surat_jalans: [],
     documents: [],
@@ -68,18 +79,11 @@ function seedDb(): Record<string, Row[]> {
   };
 }
 
-interface Holder {
-  store: StoreValue | null;
-}
-function Harness({ holder }: { holder: Holder }) {
-  const store = useStore();
-  holder.store = store;
-  return <div data-testid="harness" />;
-}
+const wrapper = ({ children }: { children: ReactNode }) => <StoreProvider>{children}</StoreProvider>;
 
 let sb: MockSupabase;
-const holder: Holder = { store: null };
-const S = () => holder.store!;
+let storeHook: ReturnType<typeof renderHook<StoreValue, undefined>>;
+const S = () => storeHook.result.current;
 
 // Jalankan aksi async penuh di dalam act (callback async eksplisit) sehingga
 // semua await (insert/update/refresh + setState hasil re-fetch) ter-commit
@@ -95,13 +99,10 @@ async function actAsync<T>(fn: () => Promise<T>): Promise<T> {
 // Satu-satunya mount.
 beforeAll(async () => {
   sb = new MockSupabase(seedDb(), () => "INV-002");
-  (globalThis as any).__mockSupabase = sb;
+  sb.simulateDbBehavior = true;
+  globalThis.__mockSupabase = sb;
   await actAsync(async () => {
-    render(
-      <StoreProvider>
-        <Harness holder={holder} />
-      </StoreProvider>
-    );
+    storeHook = renderHook<StoreValue, undefined>(() => useStore(), { wrapper });
     await Promise.resolve();
   });
   // Beri microtask-turn di dalam act agar rantai async refresh() ter-commit.
@@ -110,12 +111,12 @@ beforeAll(async () => {
       await Promise.resolve();
     });
   }
-  await waitFor(() => expect(holder.store).not.toBeNull());
-  await waitFor(() => expect(holder.store!.loading).toBe(false));
+  await waitFor(() => expect(S().loading).toBe(false));
 });
 
 // Setiap test: DB fresh + state di-refresh.
 beforeEach(async () => {
+  testAuth.user = { id: "88888888-8888-4888-8888-888888888888" };
   sb.reset(seedDb());
   await actAsync(() => S().refresh());
 });
@@ -139,7 +140,7 @@ describe("Initial refresh (pemetaan data DB → app)", () => {
     expect(s.orders[0].id).toBe("INV-001");
     expect(s.orders[0].items).toHaveLength(1);
     expect(s.orders[0].items[0].productName).toBe("Algebra X");
-    expect(s.movements).toHaveLength(1);
+    expect(s.movements).toHaveLength(2);
     expect(s.movements[0].type).toBe("INITIAL");
   });
 });
@@ -169,20 +170,22 @@ describe("Kategori", () => {
   // ("SD I", "SMP II", dst.) — dulu ditolak DB karena enum 3 nilai (22P02).
   // Setelah migration 007 (level -> text) semua label ini valid.
   it("addCategory dengan label kelas bebas (\"SD I\", \"SMP II\", ...): sukses", async () => {
-    for (const level of ["SD I", "SD VI", "SMP II", "SMA III", "SD"]) {
+    for (const level of ["SD I", "SD VI", "SMP II", "MTs I", "MTs III", "SMA III", "MA I", "MA III", "SD"]) {
       const created = await actAsync(() => S().addCategory("Matematika", "desk", level));
       expect(created, `level "${level}" harus diterima`).not.toBeNull();
       expect(created!.level).toBe(level);
     }
-    // 5 baru + 1 seed bernama "Matematika" (level SMA) = 6
-    expect(S().categories.filter((c) => c.name === "Matematika")).toHaveLength(6);
+    // 9 baru + 1 seed bernama "Matematika" (level SMA) = 10
+    expect(S().categories.filter((c) => c.name === "Matematika")).toHaveLength(10);
   });
 
   it("updateCategory dengan label kelas bebas: sukses", async () => {
-    await actAsync(() => S().updateCategory(ID.c1, "Matematika", "d", "SD I"));
-    expect(S().categories[0].level).toBe("SD I");
+    await actAsync(() => S().updateCategory(ID.c1, "Matematika", "d", "MTs II"));
+    expect(S().categories[0].level).toBe("MTs II");
+    await actAsync(() => S().updateCategory(ID.c1, "Matematika", "d", "MA III"));
+    expect(S().categories[0].level).toBe("MA III");
     const row = (sb.tables.categories[0] as { level?: string });
-    expect(row.level).toBe("SD I");
+    expect(row.level).toBe("MA III");
   });
 });
 
@@ -197,9 +200,10 @@ describe("Produk & sumber kebenaran stok", () => {
     );
     expect(created).not.toBeNull();
     // Insert produk harus stock: 0 (stok dikelola lewat movements).
-    const prodInsert = sb.calls.find((c) => c.op === "insert" && c.table === "products");
-    expect(prodInsert).toBeDefined();
-    expect((prodInsert!.args as Row[])[0].stock).toBe(0);
+    const createProduct = sb.calls.find((c) => c.op === "rpc" && c.table === "create_product_atomic");
+    expect(createProduct).toBeDefined();
+    expect((createProduct!.args as Row).p_initial_stock).toBe(25);
+    expect((createProduct!.args as Row).p_product).not.toHaveProperty("stock");
     // Harus ada movement INITIAL untuk stok awal.
     const init = sb.calls.find((c) => c.op === "insert" && c.table === "stock_movements");
     expect(init).toBeDefined();
@@ -224,6 +228,15 @@ describe("Produk & sumber kebenaran stok", () => {
     const upd = sb.calls.find((c) => c.op === "update" && c.table === "products");
     expect(upd).toBeDefined();
     expect(S().products[0].name).toBe("Algebra Y");
+  });
+
+  it("updateProduct gagal saat satu tier invalid tanpa mengubah data harga sebelumnya", async () => {
+    const before = structuredClone(sb.tables.product_prices);
+    const saved = await actAsync(() => S().updateProduct(ID.p1, {
+      prices: [{ id: "bad", tierName: "Normal", price: -1, isDefault: true }],
+    }));
+    expect(saved).toBe(false);
+    expect(sb.tables.product_prices).toEqual(before);
   });
 
   it("deleteProduct: hapus produk", async () => {
@@ -306,13 +319,12 @@ describe("Pesanan & invoice", () => {
 });
 
 describe("Transisi status & stok", () => {
-  it("completeOrder: mencatat movement SALE per item & set status COMPLETED", async () => {
+  it("completeOrder: mempertahankan SALE checkout yang sudah tercatat tanpa duplikasi", async () => {
     const ok = await actAsync(() => S().completeOrder("INV-001"));
     expect(ok).toBe(true);
     const movs = sb.calls.filter((c) => c.op === "insert" && c.table === "stock_movements");
-    expect(movs).toHaveLength(1); // 1 item di seed
-    expect((movs[0].args as Row[])[0].type).toBe("SALE");
-    expect((movs[0].args as Row[])[0].quantity).toBe(-2);
+    expect(movs).toHaveLength(0); // checkout awal sudah mencatat SALE di ledger
+    expect(sb.tables.stock_movements.filter((row) => row.reference === "INV-001" && row.type === "SALE")).toHaveLength(1);
     const o = S().orders.find((x) => x.id === "INV-001");
     expect(o!.status).toBe("COMPLETED");
   });
@@ -392,6 +404,8 @@ describe("Transisi status & stok", () => {
     );
     expect(rets).toHaveLength(1);
     expect((rets[0].args as Row[])[0].quantity).toBe(1);
+    expect(await actAsync(() => S().cancelOrder("INV-103"))).toBe(true);
+    expect(sb.tables.stock_movements.filter((row) => row.reference === "INV-103" && row.type === "RETURN")).toHaveLength(1);
   });
 
   it("cancelOrder pada COMPLETED ditolak: final, tanpa movement, status utuh", async () => {
@@ -403,6 +417,17 @@ describe("Transisi status & stok", () => {
       (c) => c.op === "insert" && c.table === "stock_movements" && (c.args as Row[])[0].type === "RETURN",
     );
     expect(rets).toHaveLength(0);
+  });
+
+  it("deleteOrder menghapus movement transaksi saja dan mempertahankan adjustment dengan referensi sama", async () => {
+    sb.tables.stock_movements.push({ id: ID.m3, product_id: ID.p1, type: "ADJUSTMENT", quantity: 3, reference: "INV-001", notes: "koreksi manual", created_by: null, created_at: "2026-08-27" });
+    sb.tables.products.find((row) => row.id === ID.p1)!.stock = 13;
+    const deleted = await actAsync(() => S().deleteOrder("INV-001"));
+    expect(deleted).toBe(true);
+    expect(S().orders.some((order) => order.id === "INV-001")).toBe(false);
+    expect(sb.tables.stock_movements.some((row) => row.id === ID.m2)).toBe(false);
+    expect(sb.tables.stock_movements.some((row) => row.id === ID.m3)).toBe(true);
+    expect(sb.tables.products.find((row) => row.id === ID.p1)?.stock).toBe(15);
   });
 
   it("addOrder CHECKED_OUT: stok terpotong saat order dibuat", async () => {
@@ -422,7 +447,7 @@ describe("Transisi status & stok", () => {
     expect((sales[0].args as Row[])[0].quantity).toBe(-2);
   });
 
-  it("addOrder CHECKED_OUT stok kurang → order dikembalikan jadi DRAFT", async () => {
+  it("addOrder CHECKED_OUT stok kurang → transaksi batal tanpa order atau movement parsial", async () => {
     const res = await actAsync(() =>
       S().addOrder({
         date: "2026-08-27", customerId: null, customerName: "T",
@@ -430,12 +455,63 @@ describe("Transisi status & stok", () => {
         subtotal: 4950000, discount: 0, total: 4950000, status: "CHECKED_OUT",
       }),
     );
-    expect(res).not.toBeNull();
-    expect(res!.status).toBe("DRAFT");
+    expect(res).toBeNull();
+    expect(sb.tables.orders.some((row) => row.invoice_no === "INV-002")).toBe(false);
     const sales = sb.calls.filter(
       (c) => c.op === "insert" && c.table === "stock_movements" && (c.args as Row[])[0].type === "SALE",
     );
     expect(sales).toHaveLength(0);
+  });
+
+  it("checkout item banyak bersifat atomik jika satu produk kekurangan stok", async () => {
+    const beforeOrders = sb.tables.orders.length;
+    const beforeMovements = sb.tables.stock_movements.length;
+    const result = await actAsync(() => S().addOrder({
+      date: "2026-08-27", customerId: null, customerName: "T",
+      items: [
+        { id: "good", productId: ID.p1, productName: "Algebra X", productBarcode: "BC1", quantity: 1, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 50000, costPrice: 35000 },
+        { id: "short", productId: ID.p1, productName: "Algebra X", productBarcode: "BC1", quantity: 99, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 4950000, costPrice: 35000 },
+      ],
+      subtotal: 5000000, discount: 0, total: 5000000, status: "CHECKED_OUT",
+    }));
+    expect(result).toBeNull();
+    expect(sb.tables.orders).toHaveLength(beforeOrders);
+    expect(sb.tables.order_items).toHaveLength(1);
+    expect(sb.tables.stock_movements).toHaveLength(beforeMovements);
+  });
+
+  it("dua checkout bersamaan tidak menghabiskan stok yang sama dua kali", async () => {
+    await seedOrder("INV-104", "DRAFT", 6, "d4d4d4d4d4d4");
+    await seedOrder("INV-105", "DRAFT", 6, "d5d5d5d5d5d5");
+    const results = await actAsync(() => Promise.all([
+      S().checkoutOrder("INV-104"),
+      S().checkoutOrder("INV-105"),
+    ]));
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const saleRows = sb.tables.stock_movements.filter((row) =>
+      row.type === "SALE" && ["INV-104", "INV-105"].includes(String(row.reference)),
+    );
+    expect(saleRows).toHaveLength(1);
+    expect(sb.tables.products.find((row) => row.id === ID.p1)?.stock).toBe(4);
+    const winner = saleRows[0].reference as string;
+    expect(await actAsync(() => S().checkoutOrder(winner))).toBe(true);
+    expect(sb.tables.stock_movements.filter((row) => row.type === "SALE" && row.reference === winner)).toHaveLength(1);
+  });
+
+  it("order gagal tanpa meninggalkan header atau item ketika satu item tidak valid", async () => {
+    const orderCount = sb.tables.orders.length;
+    const itemCount = sb.tables.order_items.length;
+    const result = await actAsync(() => S().addOrder({
+      date: "2026-08-27", customerId: null, customerName: "T",
+      items: [
+        { id: "valid", productId: ID.p1, productName: "Algebra X", productBarcode: "BC1", quantity: 1, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 50000, costPrice: 35000 },
+        { id: "invalid", productId: ID.p1, productName: "Algebra X", productBarcode: "BC1", quantity: 0, unitPrice: 50000, priceTier: "Normal", customPrice: null, discountPercent: 0, subtotal: 0, costPrice: 35000 },
+      ],
+      subtotal: 50000, discount: 0, total: 50000, status: "DRAFT",
+    }));
+    expect(result).toBeNull();
+    expect(sb.tables.orders).toHaveLength(orderCount);
+    expect(sb.tables.order_items).toHaveLength(itemCount);
   });
 
   it("archiveOrder: arsipkan tanpa mengubah status (data utuh)", async () => {
@@ -514,5 +590,47 @@ describe("Guard skema DB (validasi mock setara Postgres)", () => {
       .single();
     expect(error).not.toBeNull();
     expect((error as { code: string }).code).toBe("23514");
+  });
+});
+
+describe("session scoping and complete loads", () => {
+  it("surfaces query failures instead of presenting an empty store", async () => {
+    sb.failSelectTable = "orders";
+    await actAsync(() => S().refresh());
+    expect(S().loading).toBe(false);
+    expect(S().error).toMatch(/gagal dimuat/i);
+    expect(S().orders).toHaveLength(1);
+  });
+
+  it("loads more than 1,000 rows from Supabase and keeps account data scoped", async () => {
+    sb.tables.categories = Array.from({ length: 1001 }, (_, index) => ({
+      id: "00000000-0000-4000-8000-" + String(index + 1).padStart(12, "0"),
+      name: "Kategori " + (index + 1),
+      level: null,
+      description: "",
+      created_at: "2026-01-01",
+      updated_at: "2026-01-01",
+    }));
+    sb.calls = [];
+    await actAsync(() => S().refresh());
+    expect(S().categories).toHaveLength(1001);
+    expect(sb.calls.filter((call) => call.op === "select" && call.table === "categories")).toHaveLength(2);
+
+    testAuth.user = null;
+    await act(async () => { storeHook.rerender(); await Promise.resolve(); });
+    expect(S().products).toEqual([]);
+    expect(S().orders).toEqual([]);
+    await waitFor(() => expect(S().loading).toBe(false));
+
+    testAuth.user = { id: "99999999-9999-4999-8999-999999999999" };
+    sb.failSelectTable = "products";
+    await act(async () => { storeHook.rerender(); await Promise.resolve(); });
+    await waitFor(() => expect(S().loading).toBe(false));
+    expect(S().products).toEqual([]);
+    expect(S().orders).toEqual([]);
+    sb.failSelectTable = null;
+    await actAsync(() => S().refresh());
+    await waitFor(() => expect(S().orders).toHaveLength(1));
+    expect(S().products[0].name).toBe("Algebra X");
   });
 });

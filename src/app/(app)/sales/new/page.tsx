@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
@@ -12,12 +12,7 @@ import { Search, Plus, Minus, Trash2, ShoppingCart, UserRound, Truck, ScanBarcod
 import { productImageUrl } from "@/components/product-image-upload";
 import { cn } from "@/lib/utils";
 import type { OrderItem, SuratJalan } from "@/lib/types";
-import {
-  Select,
-  SelectTrigger,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
+import { businessDate } from "@/lib/business-date";
 import {
   Dialog,
   DialogContent,
@@ -69,7 +64,7 @@ export default function NewSalePage() {
   const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [deliveryForm, setDeliveryForm] = useState<SuratJalan>({
     no: "",
-    tanggal: new Date().toISOString().slice(0, 10),
+    tanggal: businessDate(),
     pengirim: "Alfan Media",
     penerima: "",
     estimasi: "",
@@ -98,12 +93,13 @@ export default function NewSalePage() {
       : false;
 
   // Selalu tampilkan buku yang tersedia; pencarian hanya mempersempit list.
-  const filteredProducts = products.filter(
-    (p) =>
-      !search.trim() ||
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.barcode.includes(search)
-  );
+  const productsById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
+  const categoriesById = useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
+  const productsByBarcode = useMemo(() => new Map(products.filter((product) => product.barcode.trim()).map((product) => [product.barcode.trim().toLowerCase(), product])), [products]);
+  const filteredProducts = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return products.filter((p) => !query || p.name.toLowerCase().includes(query) || p.barcode.trim().toLowerCase().includes(query));
+  }, [products, search]);
 
   // Penjualan walk-in (pelanggan langsung): harga item default tier "Normal"
   // (atau harga default produk). Tier tetap bisa diubah per baris di keranjang.
@@ -116,7 +112,7 @@ export default function NewSalePage() {
   };
 
   const addToCart = (productId: string) => {
-    const product = products.find((p) => p.id === productId);
+    const product = productsById.get(productId);
     if (!product) return;
     const existing = cart.find((c) => c.productId === productId);
     if (existing) {
@@ -146,9 +142,9 @@ export default function NewSalePage() {
   // Dipakai mode scan (kamera/manual) & scanner USB: cari produk per barcode
   // lalu masukkan ke keranjang. Return null = sukses, string = pesan error.
   const handleScan = (raw: string): string | null => {
-    const code = raw.trim();
+    const code = raw.trim().toLowerCase();
     if (!code) return null;
-    const product = products.find((p) => p.barcode === code);
+    const product = productsByBarcode.get(code);
     if (!product) return `Tidak ada produk dengan barcode ${code}`;
     if (product.stock <= 0) return `${product.name} sedang habis`;
     addToCart(product.id);
@@ -162,7 +158,7 @@ export default function NewSalePage() {
     const q = search.trim();
     if (!q) return;
     const match =
-      products.find((p) => p.barcode === q) ??
+      productsByBarcode.get(q.toLowerCase()) ??
       (filteredProducts.length === 1 ? filteredProducts[0] : undefined);
     if (!match) return;
     if (match.stock <= 0) {
@@ -198,7 +194,7 @@ export default function NewSalePage() {
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     // Verifikasi akhir vs stok saat ini (state store bisa terlambat satu refresh).
-    const short = cart.filter((c) => c.quantity > (products.find((p) => p.id === c.productId)?.stock ?? 0));
+    const short = cart.filter((c) => c.quantity > (productsById.get(c.productId)?.stock ?? 0));
     if (short.length > 0) {
       alert(`Stok tidak mencukupi: ${short.map((s) => s.productName).join(", ")}. Perbarui data stok dulu.`);
       return;
@@ -215,10 +211,10 @@ export default function NewSalePage() {
       discountPercent: c.discountPercent,
       subtotal: c.subtotal,
       // Snapshot modal untuk perhitungan laba (store juga fallback ke ini).
-      costPrice: products.find((p) => p.id === c.productId)?.costPrice ?? 0,
+      costPrice: productsById.get(c.productId)?.costPrice ?? 0,
     }));
     const order = await addOrder({
-      date: new Date().toISOString().slice(0, 10),
+      date: businessDate(),
       customerId: null,
       customerName: customerName.trim() || "Pelanggan",
       items: orderItems,
@@ -258,10 +254,10 @@ export default function NewSalePage() {
       discountPercent: c.discountPercent,
       subtotal: c.subtotal,
       // Snapshot modal untuk perhitungan laba (store juga fallback ke ini).
-      costPrice: products.find((p) => p.id === c.productId)?.costPrice ?? 0,
+      costPrice: productsById.get(c.productId)?.costPrice ?? 0,
     }));
     await addOrder({
-      date: new Date().toISOString().slice(0, 10),
+      date: businessDate(),
       customerId: null,
       customerName: customerName.trim() || "Pelanggan",
       items: orderItems,
@@ -318,7 +314,7 @@ export default function NewSalePage() {
             ) : (
               <div className="max-h-[50vh] overflow-y-auto sm:max-h-[400px]">
                 {filteredProducts.map((p) => {
-                  const cat = categories.find((c) => c.id === p.categoryId);
+                  const cat = categoriesById.get(p.categoryId);
                   const thumb = productImageUrl(p.imagePath);
                   return (
                     <button
@@ -327,10 +323,10 @@ export default function NewSalePage() {
                       className="flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] hover:bg-foreground/[0.03] first:rounded-t-xl last:rounded-b-xl disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
                       disabled={p.stock <= 0}
                     >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted/30">
+                      <div className="flex aspect-[2/3] w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted/30">
                         {thumb ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={thumb} alt={p.name} className="h-full w-full object-cover" />
+                          <img src={thumb} alt={p.name} loading="lazy" decoding="async" className="h-full w-full object-contain" />
                         ) : (
                           <ImageIcon size={16} className="text-muted-foreground/40" />
                         )}
@@ -406,8 +402,8 @@ export default function NewSalePage() {
                   <button onClick={()=>setCart([])} className="text-[11px] text-destructive hover:underline">Kosongkan</button>
                 </div>
                 {cart.map((item, idx) => {
-                  const itemProduct = products.find((p) => p.id === item.productId);
-                  const cat = itemProduct ? categories.find((c) => c.id === itemProduct.categoryId) : undefined;
+                  const itemProduct = productsById.get(item.productId);
+                  const cat = itemProduct ? categoriesById.get(itemProduct.categoryId) : undefined;
                   const thumb = productImageUrl(itemProduct?.imagePath);
                   const base = (item.customPrice ?? item.unitPrice) * item.quantity;
                   const discAmt = Math.round(base * item.discountPercent / 100);
@@ -416,10 +412,10 @@ export default function NewSalePage() {
                   <div key={idx} className="rounded-xl border border-border bg-card p-3 shadow-sm">
                     {/* baris 1: gambar + nama + hapus */}
                     <div className="flex gap-2.5">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-muted/30">
+                      <div className="flex aspect-[2/3] w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-muted/30">
                         {thumb ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={thumb} alt={item.productName} className="h-full w-full object-cover" />
+                          <img src={thumb} alt={item.productName} loading="lazy" decoding="async" className="h-full w-full object-contain" />
                         ) : (
                           <ImageIcon size={15} className="text-muted-foreground/40" />
                         )}
@@ -473,7 +469,7 @@ export default function NewSalePage() {
                         <button
                           key={t}
                           onClick={()=>{
-                            const prod = products.find((p)=>p.id===item.productId);
+                            const prod = productsById.get(item.productId);
                             if(!prod) return;
                             const np = getPrice(prod, t);
                             updateCart(idx, { priceTier: t, unitPrice: np, customPrice: null });

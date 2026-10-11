@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
@@ -25,12 +25,15 @@ import {
   DialogDescription,
   DialogClose,
 } from "@/components/ui/dialog";
+import { allocateOrderItemNet, isRecognizedSale } from "@/lib/sales-report";
+import type { Product } from "@/lib/types";
 
 export default function ProductsPage() {
   const { products, categories, orders, deleteProduct, adjustStock } = useStore();
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [detailProduct, setDetailProduct] = useState<Product | null>(null);
 
   // "Tambah Stok" dialog — add quantity to an existing product.
   const [addStockOpen, setAddStockOpen] = useState(false);
@@ -43,19 +46,19 @@ export default function ProductsPage() {
   // Dialog konfirmasi hapus produk.
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
-  const filteredForPick = productSearch
+  const filteredForPick = useMemo(() => productSearch
     ? products.filter(
         (p) =>
           p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
           p.barcode.includes(productSearch)
       )
-    : products;
+    : products, [products, productSearch]);
 
-  const filtered = products.filter((p) => {
+  const filtered = useMemo(() => products.filter((p) => {
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search);
     const matchCat = catFilter === "all" || p.categoryId === catFilter;
     return matchSearch && matchCat;
-  });
+  }), [products, search, catFilter]);
 
   const getCat = (id: string) => {
     const c = categories.find((x) => x.id === id);
@@ -64,32 +67,36 @@ export default function ProductsPage() {
   const getDefaultPrice = (p: typeof products[0]) => p.prices.find((pr) => pr.isDefault)?.price ?? 0;
   const getLabaPerPcs = (p: typeof products[0]) => getDefaultPrice(p) - (p.costPrice ?? 0);
 
-  // riwayat penjualan per produk (ambil dari orders yang mengandung produk tersebut)
-  const getSalesHistory = (productId: string) => {
-    const rows: { order: typeof orders[0]; item: typeof orders[0]["items"][0] }[] = [];
+  // Index history and financial stats in one pass, instead of rescanning every
+  // order for every row in the product table.
+  const { historyByProduct, salesStatsByProduct } = useMemo(() => {
+    const history = new Map<string, { order: typeof orders[number]; item: typeof orders[number]["items"][number]; allocatedNet: number }[]>();
+    const stats = new Map<string, { terjual: number; omzet: number; modal: number; laba: number; orderIds: Set<string> }>();
     for (const o of orders) {
-      for (const it of o.items) {
-        if (it.productId === productId) rows.push({ order: o, item: it });
+      if (!isRecognizedSale(o.status)) continue;
+      const nets = allocateOrderItemNet(o);
+      for (const [index, it] of o.items.entries()) {
+        if (!it.productId) continue;
+        const rows = history.get(it.productId) ?? [];
+        rows.push({ order: o, item: it, allocatedNet: nets[index] ?? 0 });
+        history.set(it.productId, rows);
+        const value = stats.get(it.productId) ?? { terjual: 0, omzet: 0, modal: 0, laba: 0, orderIds: new Set<string>() };
+        const cost = (it.costPrice ?? 0) * it.quantity;
+        value.terjual += it.quantity;
+        value.omzet += nets[index] ?? 0;
+        value.modal += cost;
+        value.laba += (nets[index] ?? 0) - cost;
+        value.orderIds.add(o.id);
+        stats.set(it.productId, value);
       }
     }
-    // terbaru dulu
-    rows.sort((a, b) => b.order.createdAt.localeCompare(a.order.createdAt));
-    return rows;
-  };
+    for (const rows of history.values()) rows.sort((a, b) => b.order.date.localeCompare(a.order.date) || b.order.createdAt.localeCompare(a.order.createdAt));
+    return { historyByProduct: history, salesStatsByProduct: stats };
+  }, [orders]);
+  const getSalesHistory = (productId: string) => historyByProduct.get(productId) ?? [];
   const getSoldStats = (productId: string) => {
-    const hist = getSalesHistory(productId).filter(({ order }) => order.status !== "CANCELLED");
-    let terjual = 0, omzet = 0, modal = 0, laba = 0;
-    for (const { item, order } of hist) {
-      terjual += item.quantity;
-      // alokasi diskon pesanan proporsional bila ada
-      const discPesanan = order.discount > 0 && order.subtotal > 0 ? Math.round(order.discount * (item.subtotal / order.subtotal)) : 0;
-      const revenueBersih = item.subtotal - discPesanan;
-      const cogs = (item.costPrice ?? 0) * item.quantity;
-      omzet += revenueBersih;
-      modal += cogs;
-      laba += revenueBersih - cogs;
-    }
-    return { terjual, omzet, modal, laba, count: hist.length };
+    const stat = salesStatsByProduct.get(productId);
+    return stat ? { terjual: stat.terjual, omzet: stat.omzet, modal: stat.modal, laba: stat.laba, count: stat.orderIds.size } : { terjual: 0, omzet: 0, modal: 0, laba: 0, count: 0 };
   };
 
   const resetStockForm = () => {
@@ -276,17 +283,17 @@ export default function ProductsPage() {
                     </button>
                   </td>
                   <td className="px-3 py-2">
-                    <div className="flex items-center gap-2.5">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted/40">
+                      <div className="flex items-center gap-2.5">
+                      <button type="button" onClick={() => setDetailProduct(p)} aria-label={`Lihat sampul dan detail ${p.name}`} className="flex aspect-[2/3] w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted/40 focus:outline-none focus:ring-2 focus:ring-ring">
                         {thumb ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={thumb} alt={p.name} className="h-full w-full object-cover" />
+                          <img src={thumb} alt="" className="h-full w-full object-contain" />
                         ) : (
                           <ImageIcon size={16} className="text-muted-foreground/40" />
                         )}
-                      </div>
+                      </button>
                       <div className="min-w-0">
-                        <div className="font-medium text-foreground leading-tight">{p.name}</div>
+                        <button type="button" onClick={() => setDetailProduct(p)} className="text-left font-medium text-foreground leading-tight hover:underline focus:outline-none focus:underline">{p.name}</button>
                         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                           <span className="md:hidden">{getCat(p.categoryId)}</span>
                           <span className="hidden md:inline font-mono text-[11px]">{p.barcode || "Tanpa barcode"}</span>
@@ -366,9 +373,9 @@ export default function ProductsPage() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {getSalesHistory(p.id).slice(0,30).map(({order, item})=>{
-                                  const discPesanan = order.discount>0 && order.subtotal>0 ? Math.round(order.discount*(item.subtotal/order.subtotal)) : 0;
-                                  const revenue = item.subtotal - discPesanan;
+                                {getSalesHistory(p.id).slice(0,30).map(({order, item, allocatedNet})=>{
+                                  const discPesanan = Math.max(0, item.subtotal - allocatedNet);
+                                  const revenue = allocatedNet;
                                   const cost = (item.costPrice ?? 0)*item.quantity;
                                   const laba = revenue - cost;
                                   return (
@@ -411,6 +418,46 @@ export default function ProductsPage() {
           </table>
         </div>
       </div>
+
+      <Dialog open={detailProduct !== null} onOpenChange={(open) => { if (!open) setDetailProduct(null); }}>
+        <DialogContent size="lg">
+          {detailProduct && <>
+            <DialogHeader>
+              <DialogTitle>{detailProduct.name}</DialogTitle>
+              <DialogDescription>Informasi buku dan sampul produk.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 sm:grid-cols-[minmax(140px,200px)_1fr]">
+              <div className="mx-auto flex aspect-[2/3] w-full max-w-[200px] items-center justify-center self-start overflow-hidden rounded-lg border border-border bg-muted/30">
+                {detailProduct.imagePath ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={productImageUrl(detailProduct.imagePath) ?? undefined} alt={`Sampul ${detailProduct.name}`} className="h-full w-full object-contain" />
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground/60"><ImageIcon size={30} /><span className="text-xs">Belum ada sampul</span></div>
+                )}
+              </div>
+              <div className="min-w-0 space-y-3 text-[13px]">
+                <div>
+                  <h3 className="font-semibold text-foreground">{detailProduct.name}</h3>
+                  <p className="mt-0.5 text-muted-foreground">{getCat(detailProduct.categoryId)}</p>
+                </div>
+                <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
+                  <div><dt className="text-[11px] text-muted-foreground">Barcode</dt><dd className="break-all font-mono">{detailProduct.barcode || "Tanpa barcode"}</dd></div>
+                  <div><dt className="text-[11px] text-muted-foreground">Stok</dt><dd>{detailProduct.stock}</dd></div>
+                  <div><dt className="text-[11px] text-muted-foreground">Tahun terbit</dt><dd>{detailProduct.publishedYear || "-"}</dd></div>
+                  <div><dt className="text-[11px] text-muted-foreground">Semester</dt><dd>{detailProduct.semester || "-"}</dd></div>
+                  <div><dt className="text-[11px] text-muted-foreground">Modal</dt><dd>{formatRupiah(detailProduct.costPrice ?? 0)}</dd></div>
+                  <div><dt className="text-[11px] text-muted-foreground">Harga jual</dt><dd>{formatRupiah(detailProduct.prices.find((price) => price.isDefault)?.price ?? 0)}</dd></div>
+                </dl>
+                {detailProduct.description && <p className="whitespace-pre-wrap border-t border-border pt-2 text-muted-foreground">{detailProduct.description}</p>}
+              </div>
+            </div>
+            <DialogFooter>
+              <button type="button" onClick={() => { setDeleteTarget({ id: detailProduct.id, name: detailProduct.name }); setDetailProduct(null); }} className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/30 px-3 py-1.5 text-[13px] text-destructive hover:bg-destructive/10"><Trash2 size={14} /> Hapus</button>
+              <Link href={`/stock/products/${detailProduct.id}?edit=1`} onClick={() => setDetailProduct(null)} className="inline-flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:opacity-90"><Pencil size={14} /> Edit</Link>
+            </DialogFooter>
+          </>}
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={deleteTarget !== null}

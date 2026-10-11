@@ -37,8 +37,8 @@ interface ZXingReaderLike {
   decodeFromCanvas(canvas: HTMLCanvasElement): Promise<{ getText(): string | null }>;
 }
 
-/** Jeda minimal antar deteksi (detect berat; 60fps bikin UI lag). */
-const DETECT_INTERVAL_MS = 250;
+/** shortcut: decode tetap di main thread; pindahkan ke worker jika profiling masih menunjukkan scan jank. */
+const DETECT_INTERVAL_MS = 350;
 /** Cooldown setelah sebuah barcode diterima, cegah double-accept jiter. */
 const ACCEPT_COOLDOWN_MS = 1500;
 

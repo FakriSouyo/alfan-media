@@ -2,6 +2,7 @@
 
 import { use, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
 import { PageHeader } from "@/components/page-header";
@@ -23,7 +24,8 @@ import {
 
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { orders, products, categories, cancelOrder, completeOrder, checkoutOrder, archiveOrder, deleteOrder, updateSuratJalan } = useStore();
+  const router = useRouter();
+  const { orders, products, categories, loading, cancelOrder, completeOrder, checkoutOrder, archiveOrder, deleteOrder, updateSuratJalan } = useStore();
   const order = orders.find((o) => o.id === id);
   const [sjOpen, setSjOpen] = useState(false);
   const [completeOpen, setCompleteOpen] = useState(false);
@@ -41,6 +43,10 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     kendaraan: "",
     catatan: "",
   });
+
+  if (!order && loading) {
+    return <div role="status" className="flex min-h-64 items-center justify-center gap-2 p-6 text-sm text-muted-foreground"><span className="size-4 animate-spin rounded-full border-2 border-border border-t-foreground" />Memuat rincian pesanan…</div>;
+  }
 
   if (!order) {
     return (
@@ -377,7 +383,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         destructive
         onConfirm={async () => {
           const ok = await deleteOrder(order.id);
-          if (ok) window.location.href = "/sales/orders";
+          if (ok) router.push("/sales/orders");
         }}
         onOpenChange={setDeleteOpen}
       />

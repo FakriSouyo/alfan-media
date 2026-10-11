@@ -6,6 +6,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react";
 
@@ -21,25 +22,25 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 const STORAGE_KEY = "tokobuku_theme";
 
-/** Reads the theme that applies before React mounts (localStorage, else the
- *  current `.dark` class, else dark). Used both here and by the root layout if
- *  it wants to avoid a flash. */
-function initialTheme(): Theme {
-  if (typeof window === "undefined") return "light";
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "light" || stored === "dark") return stored;
-  } catch {
-    // ignore
-  }
-  return "light";
-}
-
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(initialTheme);
+  // Keep the server and hydration snapshots identical; the root layout's
+  // beforeInteractive script has already applied the persisted class.
+  const [theme, setThemeState] = useState<Theme>("light");
+  const initialized = useRef(false);
 
-  // Apply the class + persistence whenever the theme changes.
   useEffect(() => {
+    if (!initialized.current) {
+      initialized.current = true;
+      let stored: string | null = null;
+      try { stored = localStorage.getItem(STORAGE_KEY); } catch { /* storage may be unavailable */ }
+      const initial: Theme = stored === "dark" || stored === "light"
+        ? stored
+        : document.documentElement.classList.contains("dark") ? "dark" : "light";
+      document.documentElement.classList.toggle("dark", initial === "dark");
+      setThemeState(initial);
+      try { localStorage.setItem(STORAGE_KEY, initial); } catch { /* storage may be unavailable */ }
+      return;
+    }
     document.documentElement.classList.toggle("dark", theme === "dark");
     try {
       localStorage.setItem(STORAGE_KEY, theme);

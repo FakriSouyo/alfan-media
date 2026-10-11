@@ -888,7 +888,7 @@ export const AnimatedSidebarMenuSub = forwardRef<
           transition={context.reduce ? { duration: 0.12 } : undefined}
           data-slot="sidebar-menu-sub"
           className={cn(
-            "relative mt-1 ml-5 flex min-w-0 flex-col gap-0.5 border-border border-l pl-3",
+            "relative mt-2 ml-5 flex min-w-0 flex-col gap-1 border-border border-l pl-3",
             className,
           )}
         >

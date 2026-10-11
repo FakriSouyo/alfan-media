@@ -5,6 +5,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AgentCandidate, ToolContext } from "../types";
 import type { PeriodSpec } from "../schemas/tools";
+import { businessDate } from "@/lib/business-date";
 
 // ─── Row shapes (snake_case, straight from Supabase) ─────────────────────────
 
@@ -35,7 +36,7 @@ export interface ProductPriceRow {
 export interface CategoryRow {
   id: string;
   name: string;
-  level: "SD" | "SMP" | "SMA" | null;
+  level: string | null;
   description: string;
   created_at: string;
   updated_at: string;
@@ -77,60 +78,51 @@ export interface CategoryOption {
   name: string;
 }
 
-// ─── Period ranges (inclusive, local calendar dates) ─────────────────────────
+// ─── Period ranges (inclusive, Asia/Makassar calendar dates) ────────────────
 
 export interface DateRange {
   from: string; // YYYY-MM-DD
   to: string; // YYYY-MM-DD
 }
 
-function iso(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+function shiftDate(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + days));
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-${String(shifted.getUTCDate()).padStart(2, "0")}`;
 }
 
 export function periodRange(period: PeriodSpec, now: Date = new Date()): DateRange {
+  const today = businessDate(now);
+  const year = Number(today.slice(0, 4));
+  const firstOfMonth = `${today.slice(0, 7)}-01`;
+  const firstOfYear = `${year}-01-01`;
   switch (period.kind) {
     case "today":
-      return { from: iso(now), to: iso(now) };
-    case "yesterday": {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 1);
-      return { from: iso(d), to: iso(d) };
-    }
+      return { from: today, to: today };
+    case "yesterday":
+      return { from: shiftDate(today, -1), to: shiftDate(today, -1) };
     case "this_week": {
-      const d = new Date(now);
-      const day = (d.getDay() + 6) % 7; // Monday = 0
-      const start = new Date(d);
-      start.setDate(d.getDate() - day);
-      const end = new Date(start);
-      end.setDate(start.getDate() + 6);
-      return { from: iso(start), to: iso(end) };
+      const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
+      const start = shiftDate(today, -((weekday + 6) % 7)); // Monday = 0
+      return { from: start, to: shiftDate(start, 6) };
     }
     case "last_week": {
-      const d = new Date(now);
-      const day = (d.getDay() + 6) % 7;
-      const end = new Date(d);
-      end.setDate(d.getDate() - day - 1);
-      const start = new Date(end);
-      start.setDate(end.getDate() - 6);
-      return { from: iso(start), to: iso(end) };
+      const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
+      const end = shiftDate(today, -((weekday + 6) % 7) - 1);
+      return { from: shiftDate(end, -6), to: end };
     }
     case "this_month":
-      return { from: iso(new Date(now.getFullYear(), now.getMonth(), 1)), to: iso(now) };
+      return { from: firstOfMonth, to: today };
     case "last_month": {
-      const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const last = new Date(now.getFullYear(), now.getMonth(), 0);
-      return { from: iso(first), to: iso(last) };
+      const from = shiftDate(firstOfMonth, -1).slice(0, 7) + "-01";
+      return { from, to: shiftDate(firstOfMonth, -1) };
     }
     case "this_year":
-      return { from: iso(new Date(now.getFullYear(), 0, 1)), to: iso(now) };
+      return { from: firstOfYear, to: today };
     case "last_year":
       return {
-        from: iso(new Date(now.getFullYear() - 1, 0, 1)),
-        to: iso(new Date(now.getFullYear() - 1, 11, 31)),
+        from: `${year - 1}-01-01`,
+        to: `${year - 1}-12-31`,
       };
   }
 }

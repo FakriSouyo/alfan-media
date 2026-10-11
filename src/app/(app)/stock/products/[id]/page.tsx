@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, use } from "react";
-import { useRouter } from "next/navigation";
+import { useState, use, useEffect, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
+import { businessDate } from "@/lib/business-date";
+import { allocateOrderItemNet, isRecognizedSale } from "@/lib/sales-report";
 import { PageHeader } from "@/components/page-header";
 import { CategoryName, categoryText } from "@/components/category-label";
 import { ProductImageUpload } from "@/components/product-image-upload";
@@ -18,22 +20,25 @@ import {
 
 export default function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const router = useRouter();
-  const { products, categories, movements, orders, updateProduct, adjustStock } = useStore();
+  const { products, categories, movements, orders, loading, updateProduct, adjustStock } = useStore();
+  const searchParams = useSearchParams();
   const product = products.find((p) => p.id === id);
   const category = categories.find((c) => c.id === product?.categoryId);
   const productMovements = movements.filter((m) => m.productId === id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const salesHistory = (() => {
-    const rows: { order: typeof orders[0]; item: typeof orders[0]["items"][0] }[] = [];
-    for (const o of orders) for (const it of o.items) if (it.productId === id) rows.push({ order: o, item: it });
+    const rows: { order: typeof orders[0]; item: typeof orders[0]["items"][0]; allocatedNet: number }[] = [];
+    for (const o of orders) {
+      if (!isRecognizedSale(o.status)) continue;
+      const net = allocateOrderItemNet(o);
+      o.items.forEach((it, index) => { if (it.productId === id) rows.push({ order: o, item: it, allocatedNet: net[index] ?? 0 }); });
+    }
     rows.sort((a,b)=> b.order.createdAt.localeCompare(a.order.createdAt));
     return rows;
   })();
   const salesStats = (() => {
     let terjual=0, omzet=0, modal=0, laba=0;
-    for (const {order, item} of salesHistory.filter(({order})=> order.status!=="CANCELLED")) {
-      const discPesanan = order.discount>0 && order.subtotal>0 ? Math.round(order.discount*(item.subtotal/order.subtotal)) : 0;
-      const rev = item.subtotal - discPesanan;
+    for (const {item, allocatedNet} of salesHistory) {
+      const rev = allocatedNet;
       const c = (item.costPrice ?? product?.costPrice ?? 0)*item.quantity;
       terjual+=item.quantity; omzet+=rev; modal+=c; laba+=rev-c;
     }
@@ -52,7 +57,29 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
   const [prices, setPrices] = useState(product?.prices ?? []);
   const [adjQty, setAdjQty] = useState(0);
   const [adjRef, setAdjRef] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [adjustError, setAdjustError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const initializedProductId = useRef("");
 
+  useEffect(() => {
+    if (!product || initializedProductId.current === id) return;
+    initializedProductId.current = id;
+    setName(product.name);
+    setCategoryId(product.categoryId);
+    setBarcode(product.barcode);
+    setDescription(product.description);
+    setPublishedYear(product.publishedYear);
+    setSemester(product.semester);
+    setCostPrice(product.costPrice);
+    setImagePath(product.imagePath ?? "");
+    setPrices(product.prices);
+    setEditing(searchParams.get("edit") === "1");
+  }, [id, product, searchParams]);
+
+  if (!product && loading) {
+    return <div role="status" className="flex min-h-64 items-center justify-center gap-2 p-6 text-sm text-muted-foreground"><span className="size-4 animate-spin rounded-full border-2 border-border border-t-foreground" />Memuat produk…</div>;
+  }
   if (!product) {
     return (
       <div className="p-4 lg:p-6">
@@ -67,14 +94,33 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
   const removeTier = (i: number) => { if (prices.length > 1) setPrices(prices.filter((_, idx) => idx !== i)); };
   const setDefault = (i: number) => setPrices(prices.map((p, idx) => ({ ...p, isDefault: idx === i })));
 
-  const handleSave = () => {
-    updateProduct(id, { name, categoryId, barcode: barcode.trim(), description, publishedYear, semester, costPrice, imagePath: imagePath || undefined, prices });
+  const handleSave = async () => {
+    setSaveError("");
+    if (!name.trim()) { setSaveError("Nama produk wajib diisi."); return; }
+    const cleanBarcode = barcode.trim();
+    if (cleanBarcode && products.some((other) => other.id !== id && other.barcode.trim().toLocaleLowerCase("id-ID") === cleanBarcode.toLocaleLowerCase("id-ID"))) {
+      setSaveError("Barcode sudah digunakan produk lain."); return;
+    }
+    const currentYear = Number(businessDate().slice(0, 4));
+    if (!Number.isInteger(publishedYear) || publishedYear < 1900 || publishedYear > currentYear + 1) { setSaveError("Tahun terbit tidak valid."); return; }
+    if (!Number.isInteger(costPrice) || costPrice < 0) { setSaveError("Harga awal tidak boleh negatif."); return; }
+    const tierNames = prices.map((price) => price.tierName.trim().toLocaleLowerCase("id-ID"));
+    if (prices.length === 0 || prices.some((price) => !price.tierName.trim()) || new Set(tierNames).size !== tierNames.length) { setSaveError("Setiap tier harga harus memiliki nama unik."); return; }
+    if (prices.some((price) => !Number.isInteger(price.price) || price.price < 0)) { setSaveError("Harga tier harus berupa angka bulat nol atau lebih."); return; }
+    if (prices.filter((price) => price.isDefault).length !== 1) { setSaveError("Pilih tepat satu tier sebagai harga default."); return; }
+    setSaving(true);
+    const saved = await updateProduct(id, { name: name.trim(), categoryId, barcode: cleanBarcode, description, publishedYear, semester, costPrice, imagePath: imagePath || undefined, prices });
+    setSaving(false);
+    if (!saved) { setSaveError("Produk gagal disimpan. Periksa barcode dan koneksi database."); return; }
     setEditing(false);
   };
 
-  const handleAdjust = () => {
-    if (adjQty === 0 || !adjRef.trim()) return;
-    adjustStock(id, adjQty, adjRef.trim());
+  const handleAdjust = async () => {
+    setAdjustError("");
+    if (!Number.isInteger(adjQty) || adjQty === 0) { setAdjustError("Jumlah penyesuaian harus berupa bilangan bulat selain nol."); return; }
+    if (!adjRef.trim()) { setAdjustError("Catatan wajib diisi."); return; }
+    const saved = await adjustStock(id, adjQty, adjRef.trim());
+    if (!saved) { setAdjustError("Penyesuaian gagal disimpan. Coba lagi."); return; }
     setAdjQty(0);
     setAdjRef("");
   };
@@ -98,7 +144,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
           ) : (
             <div className="flex gap-2">
               <button onClick={() => { setEditing(false); setName(product.name); setCategoryId(product.categoryId); setBarcode(product.barcode); setDescription(product.description); setPublishedYear(product.publishedYear); setSemester(product.semester); setCostPrice(product.costPrice); setImagePath(product.imagePath ?? ""); setPrices(product.prices); }} className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04]">Batal</button>
-              <button onClick={handleSave} className="flex items-center gap-1 rounded-lg bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:opacity-90"><Save size={14} /> Simpan</button>
+              <button onClick={handleSave} disabled={saving} className="flex items-center gap-1 rounded-lg bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:opacity-90 disabled:opacity-50"><Save size={14} /> {saving ? "Menyimpan…" : "Simpan"}</button>
             </div>
           )
         }
@@ -113,6 +159,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
           </div>
           {editing ? (
             <div className="flex flex-col gap-3">
+              {saveError && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-[12px] text-destructive">{saveError}</p>}
               <label className="text-[12px] font-medium text-foreground">Nama Produk</label>
               <input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
               <label className="text-[12px] font-medium text-foreground">Kategori</label>
@@ -216,6 +263,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
             <input value={adjRef} onChange={(e) => setAdjRef(e.target.value)} placeholder="Catatan" className="h-8 flex-1 rounded-lg border border-border bg-background px-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring" />
             <button onClick={handleAdjust} className="rounded-lg bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:opacity-90">OK</button>
           </div>
+          {adjustError && <p role="alert" className="mt-2 text-[12px] text-destructive">{adjustError}</p>}
         </div>
 
         {/* Riwayat Penjualan & Laba — terlihat laba per buku + dropdown riwayat */}
