@@ -49,6 +49,7 @@ import {
   Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useStore } from "@/lib/store-context";
 
 type NavChild = { label: string; href: string };
 type NavItem = {
@@ -101,6 +102,7 @@ function activePage(pathname: string) {
     if (isParentActive(pathname, item)) return { section: item.label, label: item.label };
   }
   if (pathname === "/agent") return { section: "Asisten", label: "Asisten AI" };
+  if (pathname === "/profile") return { section: "Akun", label: "Profil" };
   if (pathname === "/settings") return { section: "Akun", label: "Pengaturan" };
   return { section: "Workspace", label: "Halaman" };
 }
@@ -115,6 +117,7 @@ export function AppSidebarLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { error: storeError, loading: storeLoading, refresh } = useStore();
   const { theme, toggleTheme } = useTheme();
   const page = useMemo(() => activePage(pathname), [pathname]);
 
@@ -256,7 +259,7 @@ export function AppSidebarLayout({ children }: { children: React.ReactNode }) {
                 {user?.name}
                 <span className="block truncate text-muted-foreground">{user?.email}</span>
               </DropdownLabel>
-              <MenuItem index={0} icon={CircleUserRound} label="Profil" onSelect={() => {}} />
+              <MenuItem index={0} icon={CircleUserRound} label="Profil" onSelect={() => router.push("/profile")} />
               <MenuItem index={1} icon={Settings} label="Pengaturan" onSelect={() => router.push("/settings")} />
               <DropdownSeparator />
               <MenuItem
@@ -293,7 +296,11 @@ export function AppSidebarLayout({ children }: { children: React.ReactNode }) {
             {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
           </button>
         </header>
-        <div className="app-page flex-1">{children}</div>
+        <div className="app-page flex-1">
+          {storeLoading && <div role="status" aria-live="polite" className="mx-4 mt-4 flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-muted-foreground lg:mx-6"><span className="size-3 animate-spin rounded-full border-2 border-border border-t-foreground" />Memuat data toko…</div>}
+          {!storeLoading && storeError && <div role="alert" className="mx-4 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] text-destructive lg:mx-6"><span>{storeError}</span><button type="button" onClick={() => void refresh()} className="rounded-md border border-destructive/30 px-2.5 py-1 text-xs font-medium hover:bg-destructive/10">Coba lagi</button></div>}
+          {children}
+        </div>
       </SidebarInset>
     </SidebarProvider>
   );

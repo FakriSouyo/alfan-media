@@ -15,7 +15,9 @@ export function LoginForm() {
   const [passwordError, setPasswordError] = useState<string | undefined>();
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string>();
-  const { login } = useAuth();
+  const [resetSent, setResetSent] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const { login, requestPasswordReset } = useAuth();
   const router = useRouter();
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -34,7 +36,7 @@ export function LoginForm() {
     }
 
     if (!password) {
-      setPasswordError("Password wajib diisi");
+      setPasswordError("Kata sandi wajib diisi");
       hasError = true;
     } else {
       setPasswordError(undefined);
@@ -50,6 +52,20 @@ export function LoginForm() {
     } else {
       router.push("/agent");
     }
+  };
+
+  const handleForgotPassword = async () => {
+    setServerError(undefined);
+    setResetSent(false);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setEmailError("Masukkan alamat email yang valid untuk menerima tautan pemulihan");
+      return;
+    }
+    setResetting(true);
+    const result = await requestPasswordReset(email);
+    setResetting(false);
+    if (result.error) setServerError(result.error);
+    else setResetSent(true);
   };
 
   return (
@@ -80,10 +96,11 @@ export function LoginForm() {
       </div>
 
       {serverError && (
-        <div className="rounded-lg bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
+        <div role="alert" aria-live="assertive" className="rounded-lg bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
           {serverError}
         </div>
       )}
+      {resetSent && <p role="status" aria-live="polite" className="rounded-lg bg-emerald-500/10 px-3 py-2 text-[13px] text-emerald-700 dark:text-emerald-300">Jika akun dengan email tersebut tersedia, instruksi pemulihan kata sandi telah dikirim.</p>}
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
         <InputGroup size="default" className="w-full">
           <InputField
@@ -117,10 +134,12 @@ export function LoginForm() {
         <div className="-mt-1 flex items-center justify-start">
           <button
             type="button"
+            onClick={handleForgotPassword}
+            disabled={resetting}
             className="cursor-pointer text-[12px] text-muted-foreground transition-colors duration-80 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)] rounded-sm"
             style={{ fontVariationSettings: fontWeights.medium }}
           >
-            Lupa kata sandi?
+            {resetting ? "Mengirim tautan…" : "Lupa kata sandi?"}
           </button>
         </div>
 

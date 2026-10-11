@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/lib/auth-context";
 import { formatRupiah } from "@/lib/currency";
@@ -8,6 +9,8 @@ import { categoryText } from "@/components/category-label";
 import { useSurface } from "@/lib/surface-context";
 import { surfaceClasses } from "@/lib/surface-classes";
 import { cn } from "@/lib/utils";
+import { businessDate, BUSINESS_TIME_ZONE } from "@/lib/business-date";
+import { isRecognizedSale } from "@/lib/sales-report";
 import {
   TrendingUp,
   ShoppingCart,
@@ -17,7 +20,7 @@ import {
 } from "lucide-react";
 
 function getGreeting() {
-  const h = new Date().getHours();
+  const h = Number(new Intl.DateTimeFormat("en-US", { timeZone: BUSINESS_TIME_ZONE, hour: "numeric", hour12: false }).format(new Date()));
   if (h < 12) return "Selamat pagi";
   if (h < 17) return "Selamat siang";
   return "Selamat malam";
@@ -25,17 +28,16 @@ function getGreeting() {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const { orders, products, movements, categories } = useStore();
+  const { orders, products, categories } = useStore();
   // The page floats inside the inset card (surface-2). Every panel on top of
   // it steps up one level so the ladder reads correctly.
   const substrate = useSurface();
 
-  const completedOrders = orders.filter((o) => o.status === "COMPLETED");
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const todayOrders = completedOrders.filter((o) => o.date === todayStr);
+  const recognizedOrders = useMemo(() => orders.filter((order) => isRecognizedSale(order.status)), [orders]);
+  const todayStr = businessDate();
+  const todayOrders = useMemo(() => recognizedOrders.filter((order) => order.date === todayStr), [recognizedOrders, todayStr]);
   const totalSalesToday = todayOrders.reduce((s, o) => s + o.total, 0);
-  const totalSalesAll = completedOrders.reduce((s, o) => s + o.total, 0);
-  const lowStockProducts = products.filter((p) => p.stock <= 5);
+  const lowStockProducts = useMemo(() => products.filter((p) => p.stock <= 5), [products]);
 
   // Laba = pendapatan bersih − jumlah modal terpakai.
   // Modal per item di-snapshot di order_items.cost_price saat pesanan dibuat,
@@ -43,7 +45,6 @@ export default function DashboardPage() {
   const orderProfit = (o: (typeof orders)[number]) =>
     o.total - o.items.reduce((s, i) => s + (i.costPrice ?? 0) * i.quantity, 0);
   const profitToday = todayOrders.reduce((s, o) => s + orderProfit(o), 0);
-  const profitAll = completedOrders.reduce((s, o) => s + orderProfit(o), 0);
 
   const stats = [
     { label: "Penjualan Hari Ini", value: formatRupiah(totalSalesToday), icon: TrendingUp, color: "text-emerald-500" },
@@ -53,9 +54,9 @@ export default function DashboardPage() {
     { label: "Stok Menipis", value: String(lowStockProducts.length), icon: AlertTriangle, color: "text-amber-500" },
   ];
 
-  const recentOrders = [...orders]
+  const recentOrders = useMemo(() => [...orders]
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .slice(0, 5);
+    .slice(0, 5), [orders]);
 
   const statusColor: Record<string, string> = {
     COMPLETED: "bg-emerald-500/15 text-emerald-500",

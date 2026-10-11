@@ -1,127 +1,159 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-  type ReactNode,
-} from "react";
-import type { User } from "./types";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
+import type { User } from "./types";
 import { getSupabaseBrowserClient } from "./supabase/browser";
 
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
+  error: string | null;
   login: (email: string, password: string) => Promise<{ error?: string }>;
+  requestPasswordReset: (email: string) => Promise<{ error?: string }>;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// Mapping row `profiles` (Supabase) → object `User` (app).
-type ProfileRow = {
-  id: string;
-  name: string;
-  email: string;
-  role: "admin" | "staff";
-};
+type ProfileRow = { id: string; name: string; email: string; role: "admin" | "staff" };
+const profileToUser = (profile: ProfileRow): User => ({ id: profile.id, name: profile.name, email: profile.email, role: profile.role });
 
-function profileToUser(p: ProfileRow): User {
-  return { id: p.id, name: p.name, email: p.email, role: p.role };
+function friendlyAuthError(message: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("invalid login credentials")) return "Email atau kata sandi tidak sesuai.";
+  if (normalized.includes("email not confirmed")) return "Email belum dikonfirmasi. Hubungi administrator.";
+  if (normalized.includes("too many requests")) return "Terlalu banyak percobaan. Tunggu sebentar lalu coba lagi.";
+  if (normalized.includes("fetch") || normalized.includes("network")) return "Tidak dapat terhubung ke layanan autentikasi. Periksa koneksi lalu coba lagi.";
+  return "Autentikasi gagal. Coba lagi atau hubungi administrator.";
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Ambil client sekali, dipakai di semua handler.
+  const [error, setError] = useState<string | null>(null);
   const supabase: SupabaseClient = getSupabaseBrowserClient();
 
-  // Helper: dari session Supabase Auth, fetch profile di public.profiles.
-  // Trigger on_auth_user_created (di 003_rls.sql) sudah auto-buat profile,
-  // jadi ini seharusnya selalu berhasil untuk user valid.
-  const loadProfile = useCallback(
-    async (session: Session | null): Promise<User | null> => {
-      if (!session?.user) return null;
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, name, email, role")
-        .eq("id", session.user.id)
-        .maybeSingle();
-
-      if (error) {
-        console.error("Failed to load profile:", error);
-        return null;
-      }
-      if (!data) return null;
-      return profileToUser(data as ProfileRow);
-    },
-    [supabase]
-  );
-
-  // ─── Inisialisasi: cek session yang masih aktif ────────────────────────
   useEffect(() => {
     let mounted = true;
+    let authRevision = 0;
+    let profileRevision = 0;
+    let authInitialized = false;
+    let activeUserId: string | null = null;
+    let pendingProfileFor: string | null = null;
+    let loadedProfileFor: string | null = null;
 
-    (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!mounted) return;
-      const u = await loadProfile(session);
-      setUser(u);
-      setLoading(false);
-    })();
+    const loadProfile = async (session: Session, revision: number) => {
+      try {
+        const { data, error: profileError } = await supabase
+          .from("profiles")
+          .select("id, name, email, role")
+          .eq("id", session.user.id)
+          .maybeSingle();
+        if (profileError) throw profileError;
+        if (!data) throw new Error("Profil akun tidak ditemukan.");
+        if (!mounted || revision !== authRevision || activeUserId !== session.user.id) return;
+        loadedProfileFor = session.user.id;
+        pendingProfileFor = null;
+        setUser(profileToUser(data as ProfileRow));
+        setError(null);
+        setLoading(false);
+      } catch (loadError) {
+        if (!mounted || revision !== authRevision || activeUserId !== session.user.id) return;
+        pendingProfileFor = null;
+        setUser(null);
+        setError("Sesi ditemukan, tetapi profil akun gagal dimuat. Periksa koneksi lalu kembali ke halaman masuk.");
+        setLoading(false);
+        console.error("Failed to load authenticated profile:", loadError);
+      }
+    };
 
-    // Listen perubahan auth state (login, logout, token refresh).
+    // Supabase calls must not be awaited inside onAuthStateChange. Defer the
+    // profile query until after its synchronous auth callback returns.
+    const applySession = (session: Session | null) => {
+      const userId = session?.user.id ?? null;
+      const wasInitialized = authInitialized;
+      authInitialized = true;
+      if (wasInitialized && userId === activeUserId && (userId === null || loadedProfileFor === userId || pendingProfileFor === userId)) return;
+
+      authRevision += 1;
+      const revision = authRevision;
+      activeUserId = userId;
+      pendingProfileFor = null;
+      if (!userId || !session) {
+        profileRevision += 1;
+        loadedProfileFor = null;
+        setUser(null);
+        setError(null);
+        setLoading(false);
+        return;
+      }
+
+      loadedProfileFor = null;
+      pendingProfileFor = userId;
+      setUser(null);
+      setError(null);
+      setLoading(true);
+      const requestRevision = ++profileRevision;
+      queueMicrotask(() => {
+        if (requestRevision === profileRevision) void loadProfile(session, revision);
+      });
+    };
+
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const u = await loadProfile(session);
-      setUser(u);
+    } = supabase.auth.onAuthStateChange((_event, session) => applySession(session));
+
+    const initialRevision = authRevision;
+    void supabase.auth.getSession().then(({ data, error: sessionError }) => {
+      if (!mounted || authRevision !== initialRevision) return;
+      if (sessionError) {
+        setError("Sesi autentikasi gagal dipulihkan. Periksa koneksi lalu muat ulang halaman.");
+        setLoading(false);
+        return;
+      }
+      applySession(data.session);
+    }).catch((sessionError: unknown) => {
+      if (!mounted || authRevision !== initialRevision) return;
+      setError("Sesi autentikasi gagal dipulihkan. Periksa koneksi lalu muat ulang halaman.");
       setLoading(false);
+      console.error("Failed to restore auth session:", sessionError);
     });
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [supabase, loadProfile]);
+  }, [supabase]);
 
-  // ─── Login: pakai Supabase Auth (cek password beneran) ─────────────────
-  const login = useCallback(
-    async (email: string, password: string) => {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error) {
-        return { error: error.message };
-      }
-      // onAuthStateChange akan set user dari profile.
-      return {};
-    },
-    [supabase]
-  );
+  const login = useCallback(async (email: string, password: string) => {
+    const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+    return loginError ? { error: friendlyAuthError(loginError.message) } : {};
+  }, [supabase]);
 
-  // ─── Logout ────────────────────────────────────────────────────────────
+  const requestPasswordReset = useCallback(async (email: string) => {
+    const redirectTo = typeof window === "undefined" ? undefined : `${window.location.origin}/reset-password`;
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    // Use the same response for existing and unknown accounts to prevent account enumeration.
+    return resetError ? { error: friendlyAuthError(resetError.message) } : {};
+  }, [supabase]);
+
   const logout = useCallback(async () => {
-    await supabase.auth.signOut();
+    const { error: signOutError } = await supabase.auth.signOut();
+    if (signOutError) {
+      setError("Gagal keluar dari akun. Periksa koneksi lalu coba lagi.");
+      console.error("Failed to sign out:", signOutError);
+      return;
+    }
     setUser(null);
   }, [supabase]);
 
-  return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  const value = useMemo(() => ({ user, loading, error, login, requestPasswordReset, logout }), [user, loading, error, login, requestPasswordReset, logout]);
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
-  return ctx;
+  const context = useContext(AuthContext);
+  if (!context) throw new Error("useAuth must be used within AuthProvider");
+  return context;
 }

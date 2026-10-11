@@ -5,6 +5,7 @@
 
 import type { AgentTool, ToolContext, ToolFailure, ToolResult } from "../types";
 import type { PeriodSpec } from "../schemas/tools";
+import { allocateProportionally } from "@/lib/sales-report";
 import {
   type DateRange,
   type OrderItemRow,
@@ -79,14 +80,14 @@ export function periodLabel(period: PeriodSpec): string {
 
 // ─── Query core ──────────────────────────────────────────────────────────────
 
-async function fetchCompletedOrders(
+async function fetchSalesOrders(
   ctx: ToolContext,
   range: DateRange,
 ): Promise<OrderRow[]> {
   const { data, error } = await ctx.supabase
     .from("orders")
     .select("id, invoice_no, order_date, customer_id, customer_name, subtotal, discount, total, status, notes, created_by, created_at, updated_at")
-    .eq("status", "COMPLETED")
+    .in("status", ["CHECKED_OUT", "COMPLETED"])
     .gte("order_date", range.from)
     .lte("order_date", range.to);
   if (error) throw new Error(error.message);
@@ -103,15 +104,26 @@ async function fetchItemsForOrders(ctx: ToolContext, orderIds: string[]): Promis
   return (data ?? []) as OrderItemRow[];
 }
 
-function aggregateTopProducts(items: OrderItemRow[], limit: number): TopProduct[] {
-  const byName = new Map<string, TopProduct>();
-  for (const item of items) {
-    const current = byName.get(item.product_name) ?? { name: item.product_name, quantity: 0, revenue: 0 };
-    current.quantity += item.quantity;
-    current.revenue += item.subtotal;
-    byName.set(item.product_name, current);
+function aggregateTopProducts(items: OrderItemRow[], orders: OrderRow[], limit: number): TopProduct[] {
+  const itemsByOrder = new Map<string, OrderItemRow[]>();
+  for (const item of items) itemsByOrder.set(item.order_id, [...(itemsByOrder.get(item.order_id) ?? []), item]);
+  const byProduct = new Map<string, TopProduct>();
+  for (const order of orders) {
+    const orderItems = itemsByOrder.get(order.id) ?? [];
+    const netAmounts = allocateProportionally(order.total, orderItems.map((item) => item.subtotal));
+    orderItems.forEach((item, index) => {
+      const key = item.product_id
+        ? `id:${item.product_id}`
+        : item.product_barcode.trim()
+          ? `barcode:${item.product_barcode.trim().toLowerCase()}`
+          : `snapshot:${order.id}:${item.id}`;
+      const current = byProduct.get(key) ?? { name: item.product_name, quantity: 0, revenue: 0 };
+      current.quantity += item.quantity;
+      current.revenue += netAmounts[index] ?? 0;
+      byProduct.set(key, current);
+    });
   }
-  return [...byName.values()].sort((a, b) => b.quantity - a.quantity).slice(0, limit);
+  return [...byProduct.values()].sort((a, b) => b.quantity - a.quantity || b.revenue - a.revenue || a.name.localeCompare(b.name, "id")).slice(0, limit);
 }
 
 function summarize(
@@ -130,7 +142,7 @@ function summarize(
     total,
     itemsSold,
     avgPerTransaction: orders.length > 0 ? Math.round(total / orders.length) : 0,
-    topProducts: aggregateTopProducts(items, limit),
+    topProducts: aggregateTopProducts(items, orders, limit),
   };
 }
 
@@ -141,7 +153,7 @@ export async function runGetSales(
 ): Promise<ToolResult<SalesSummary>> {
   const range = periodRange(period);
   try {
-    const orders = await fetchCompletedOrders(ctx, range);
+    const orders = await fetchSalesOrders(ctx, range);
     const items = await fetchItemsForOrders(ctx, orders.map((o) => o.id));
     return { ok: true, data: summarize(range, period, orders, items, topLimit) };
   } catch (e) {
@@ -158,9 +170,9 @@ export async function runGetSalesSummary(
   const prevPeriod = previousPeriod(period);
   const prevRange = periodRange(prevPeriod);
   try {
-    const orders = await fetchCompletedOrders(ctx, range);
+    const orders = await fetchSalesOrders(ctx, range);
     const orderItems = await fetchItemsForOrders(ctx, orders.map((o) => o.id));
-    const prevOrders = await fetchCompletedOrders(ctx, prevRange);
+    const prevOrders = await fetchSalesOrders(ctx, prevRange);
     const summary = summarize(range, period, orders, orderItems, 5);
     const previousTotal = prevOrders.reduce((s, o) => s + o.total, 0);
     return {
@@ -186,9 +198,9 @@ export async function runGetTopSelling(
 ): Promise<ToolResult<{ period: PeriodSpec; items: TopProduct[] }>> {
   const range = periodRange(period);
   try {
-    const orders = await fetchCompletedOrders(ctx, range);
+    const orders = await fetchSalesOrders(ctx, range);
     const items = await fetchItemsForOrders(ctx, orders.map((o) => o.id));
-    return { ok: true, data: { period, items: aggregateTopProducts(items, limit) } };
+    return { ok: true, data: { period, items: aggregateTopProducts(items, orders, limit) } };
   } catch (e) {
     console.error(`[get_top_selling] ${(e as Error).message}`);
     return { ok: false, code: "DB_ERROR", message: "Tidak dapat membaca data penjualan." };

@@ -2,10 +2,11 @@
 
 import { useState, useMemo } from "react";
 import { useStore } from "@/lib/store-context";
-import { formatNumber } from "@/lib/currency";
 import { PageHeader } from "@/components/page-header";
 import { CategoryName, categoryText } from "@/components/category-label";
 import { Download } from "lucide-react";
+import { businessDate } from "@/lib/business-date";
+import { csvCell, escapeHtml } from "@/lib/sales-report";
 import {
   Select,
   SelectTrigger,
@@ -22,12 +23,17 @@ export default function InventoryReportPage() {
   }, [products, catFilter]);
 
   const productStats = useMemo(() => {
+    const byProduct = new Map<string, { stockIn: number; stockOut: number }>();
+    for (const movement of movements) {
+      const totals = byProduct.get(movement.productId) ?? { stockIn: 0, stockOut: 0 };
+      if (movement.quantity > 0) totals.stockIn += movement.quantity;
+      else totals.stockOut += Math.abs(movement.quantity);
+      byProduct.set(movement.productId, totals);
+    }
+    const categoriesById = new Map(categories.map((category) => [category.id, category]));
     return filteredProducts.map((p) => {
-      const pMovements = movements.filter((m) => m.productId === p.id);
-      const stockIn = pMovements.filter((m) => m.quantity > 0).reduce((s, m) => s + m.quantity, 0);
-      const stockOut = pMovements.filter((m) => m.quantity < 0).reduce((s, m) => s + Math.abs(m.quantity), 0);
-      const cat = categories.find((c) => c.id === p.categoryId);
-      return { ...p, catName: categoryText(cat), stockIn, stockOut };
+      const { stockIn = 0, stockOut = 0 } = byProduct.get(p.id) ?? {};
+      return { ...p, catName: categoryText(categoriesById.get(p.categoryId)), stockIn, stockOut };
     });
   }, [filteredProducts, movements, categories]);
 
@@ -45,9 +51,9 @@ export default function InventoryReportPage() {
         @media print{body{margin:10px}}
       </style></head><body>
       <h2>LAPORAN INVENTARIS</h2>
-      <p style="text-align:center;font-size:11px;color:#666">Dicetak: ${new Date().toLocaleDateString("id-ID")}</p>
+      <p style="text-align:center;font-size:11px;color:#666">Dicetak: ${businessDate()}</p>
       <table><thead><tr><th>Produk</th><th>Kategori</th><th style="text-align:right">Masuk</th><th style="text-align:right">Keluar</th><th style="text-align:right">Stok</th></tr></thead><tbody>
-      ${productStats.map((p) => `<tr><td>${p.name}</td><td>${p.catName}</td><td style="text-align:right">${p.stockIn}</td><td style="text-align:right">${p.stockOut}</td><td style="text-align:right;${p.stock <= 5 ? "color:red;font-weight:bold" : ""}">${p.stock}</td></tr>`).join("")}
+      ${productStats.map((p) => `<tr><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.catName)}</td><td style="text-align:right">${p.stockIn}</td><td style="text-align:right">${p.stockOut}</td><td style="text-align:right;${p.stock <= 5 ? "color:red;font-weight:bold" : ""}">${p.stock}</td></tr>`).join("")}
       </tbody></table>
       <script>window.onload=function(){window.print()}</script></body></html>`);
     w.document.close();
@@ -56,7 +62,7 @@ export default function InventoryReportPage() {
   const handleExportExcel = () => {
     const headers = ["Produk", "Kategori", "Barcode", "Stok Masuk", "Stok Keluar", "Stok Saat Ini"];
     const rows = productStats.map((p) => [p.name, p.catName, p.barcode, p.stockIn, p.stockOut, p.stock]);
-    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const csv = [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -77,7 +83,7 @@ export default function InventoryReportPage() {
               <Download size={14} /> PDF
             </button>
             <button onClick={handleExportExcel} className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04]">
-              <Download size={14} /> Excel
+              <Download size={14} /> CSV
             </button>
           </div>
         }

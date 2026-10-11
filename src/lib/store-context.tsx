@@ -6,6 +6,8 @@ import {
   useState,
   useCallback,
   useEffect,
+  useMemo,
+  useRef,
   type ReactNode,
 } from "react";
 import type {
@@ -13,18 +15,18 @@ import type {
   Product,
   Customer,
   Order,
-  OrderItem,
   StockMovement,
   SuratJalan,
 } from "./types";
 import { getSupabaseBrowserClient } from "./supabase/browser";
 import { formatError } from "./error-log";
+import { useAuth } from "./auth-context";
 
 // ─── Shape DB row (snake_case) → TS type (camelCase) ───────────────────────
 type CategoryRow = {
   id: string;
   name: string;
-  level: "SD" | "SMP" | "SMA" | null;
+  level: string | null;
   description: string;
   created_at: string;
   updated_at: string;
@@ -204,15 +206,16 @@ interface StoreValue {
   orders: Order[];
   movements: StockMovement[];
   loading: boolean;
+  error: string | null;
 
   // Categories
   addCategory: (name: string, description: string, level?: string) => Promise<Category | null>;
-  updateCategory: (id: string, name: string, description: string, level?: string) => Promise<void>;
+  updateCategory: (id: string, name: string, description: string, level?: string) => Promise<boolean>;
   deleteCategory: (id: string) => Promise<void>;
 
   // Products
   addProduct: (p: Omit<Product, "id" | "createdAt" | "updatedAt">) => Promise<Product | null>;
-  updateProduct: (id: string, p: Partial<Product>) => Promise<void>;
+  updateProduct: (id: string, p: Partial<Product>) => Promise<boolean>;
   deleteProduct: (id: string) => Promise<void>;
 
   // Customers
@@ -244,7 +247,7 @@ interface StoreValue {
   getNextInvoiceId: () => Promise<string>;
 
   // Stock
-  adjustStock: (productId: string, qty: number, reference: string) => Promise<void>;
+  adjustStock: (productId: string, qty: number, reference: string) => Promise<boolean>;
 
   // Manual refresh (opsional)
   refresh: () => Promise<void>;
@@ -254,6 +257,8 @@ const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const supabase = getSupabaseBrowserClient();
+  const { user, loading: authLoading } = useAuth();
+  const authUserId = user?.id ?? null;
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -261,58 +266,105 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [dataUserId, setDataUserId] = useState<string | null>(null);
+  const currentUserIdRef = useRef<string | null>(authUserId);
+  const refreshVersionRef = useRef(0);
 
-  // ─── Fetcher: load semua data sekaligus (parallel) ─────────────────────
+  const clearProtectedData = useCallback(() => {
+    setCategories([]);
+    setProducts([]);
+    setCustomers([]);
+    setOrders([]);
+    setMovements([]);
+    setDataUserId(null);
+  }, []);
+
+  // Supabase applies a server row cap (commonly 1,000). Page every table so
+  // financial and stock history is never silently truncated.
   const refresh = useCallback(async () => {
-    const [cats, prods, prices, custs, ords, items, moves, sjs] = await Promise.all([
-      supabase.from("categories").select("*").order("name"),
-      supabase.from("products").select("*").order("name"),
-      supabase.from("product_prices").select("*"),
-      supabase.from("customers").select("*").order("name"),
-      supabase.from("orders").select("*").order("order_date", { ascending: false }),
-      supabase.from("order_items").select("*"),
-      supabase.from("stock_movements").select("*").order("created_at", { ascending: false }),
-      supabase.from("surat_jalans").select("*"),
-    ]);
-
-    if (cats.data) setCategories((cats.data as CategoryRow[]).map(toCategory));
-    if (prods.data && prices.data) {
-      const priceRows = prices.data as ProductPriceRow[];
-      const productRows = prods.data as ProductRow[];
-      setProducts(
-        productRows.map((p) => toProduct(p, priceRows.filter((pr) => pr.product_id === p.id)))
-      );
-    }
-    if (custs.data) setCustomers((custs.data as CustomerRow[]).map(toCustomer));
-    if (ords.data) {
-      const orderRows = ords.data as OrderRow[];
-      const itemRows = (items.data ?? []) as OrderItemRow[];
-      const sjRows = (sjs.data ?? []) as SuratJalanRow[];
-      setOrders(
-        orderRows.map((o) => {
-          const sj = sjRows.find((s) => s.order_id === o.id);
-          return toOrder(
-            o,
-            itemRows.filter((i) => i.order_id === o.id),
-            sj ? toSuratJalan(sj) : undefined
-          );
-        })
-      );
-    }
-    if (moves.data) setMovements((moves.data as StockMovementRow[]).map(toMovement));
-  }, [supabase]);
-
-  // Initial load
-  useEffect(() => {
-    (async () => {
+    const userId = authUserId;
+    if (currentUserIdRef.current !== userId) return;
+    const requestVersion = ++refreshVersionRef.current;
+    if (authLoading) {
       setLoading(true);
-      try {
-        await refresh();
-      } finally {
-        setLoading(false);
+      return;
+    }
+    if (!userId) {
+      clearProtectedData();
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    const PAGE_SIZE = 1000;
+    const fetchAll = async (table: "categories" | "products" | "product_prices" | "customers" | "orders" | "order_items" | "stock_movements" | "surat_jalans", orderColumn?: string, ascending = true) => {
+      const rows: Record<string, unknown>[] = [];
+      for (let offset = 0; ; offset += PAGE_SIZE) {
+        let query = supabase.from(table).select("*");
+        if (orderColumn) query = query.order(orderColumn, { ascending });
+        if (orderColumn !== "id") query = query.order("id", { ascending: true });
+        const { data, error: queryError } = await query.range(offset, offset + PAGE_SIZE - 1);
+        if (queryError) throw queryError;
+        const page = (data ?? []) as Record<string, unknown>[];
+        rows.push(...page);
+        if (page.length < PAGE_SIZE) return rows;
       }
-    })();
-  }, [refresh]);
+    };
+
+    try {
+      const [catRows, productRows, priceRows, customerRows, orderRows, itemRows, movementRows, suratJalanRows] = await Promise.all([
+        fetchAll("categories", "name"),
+        fetchAll("products", "name"),
+        fetchAll("product_prices", "id"),
+        fetchAll("customers", "name"),
+        fetchAll("orders", "order_date", false),
+        fetchAll("order_items", "id"),
+        fetchAll("stock_movements", "created_at", false),
+        fetchAll("surat_jalans", "id"),
+      ]);
+      if (requestVersion !== refreshVersionRef.current || currentUserIdRef.current !== userId) return;
+
+      const priceRowsTyped = priceRows as unknown as ProductPriceRow[];
+      const itemsByOrder = new Map<string, OrderItemRow[]>();
+      for (const item of itemRows as unknown as OrderItemRow[]) {
+        const bucket = itemsByOrder.get(item.order_id) ?? [];
+        bucket.push(item);
+        itemsByOrder.set(item.order_id, bucket);
+      }
+      const suratJalanByOrder = new Map((suratJalanRows as unknown as SuratJalanRow[]).map((sj) => [sj.order_id, sj]));
+      const pricesByProduct = new Map<string, ProductPriceRow[]>();
+      for (const price of priceRowsTyped) {
+        const bucket = pricesByProduct.get(price.product_id) ?? [];
+        bucket.push(price);
+        pricesByProduct.set(price.product_id, bucket);
+      }
+
+      setCategories((catRows as unknown as CategoryRow[]).map(toCategory));
+      setProducts((productRows as unknown as ProductRow[]).map((product) => toProduct(product, pricesByProduct.get(product.id) ?? [])));
+      setCustomers((customerRows as unknown as CustomerRow[]).map(toCustomer));
+      setOrders((orderRows as unknown as OrderRow[]).map((order) => {
+        const sj = suratJalanByOrder.get(order.id);
+        return toOrder(order, itemsByOrder.get(order.id) ?? [], sj ? toSuratJalan(sj) : undefined);
+      }));
+      setMovements((movementRows as unknown as StockMovementRow[]).map(toMovement));
+      setDataUserId(userId);
+      setError(null);
+    } catch (loadError) {
+      if (requestVersion !== refreshVersionRef.current || currentUserIdRef.current !== userId) return;
+      console.error(formatError(loadError, "store refresh"));
+      setError("Data toko gagal dimuat. Periksa koneksi dan coba lagi.");
+    } finally {
+      if (requestVersion === refreshVersionRef.current && currentUserIdRef.current === userId) setLoading(false);
+    }
+  }, [authLoading, authUserId, clearProtectedData, supabase]);
+
+  useEffect(() => {
+    currentUserIdRef.current = authUserId;
+    queueMicrotask(() => { void refresh(); });
+  }, [authUserId, refresh]);
 
   // ─── Categories ────────────────────────────────────────────────────────
   const addCategory = useCallback(
@@ -330,6 +382,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .single();
       if (error) {
         console.error(formatError(error, "addCategory"));
+        setError("Kategori gagal disimpan. Periksa apakah kombinasi nama dan kelas sudah ada.");
         return null;
       }
       const created = toCategory(data as CategoryRow);
@@ -352,11 +405,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .eq("id", id);
       if (error) {
         console.error(formatError(error, "updateCategory"));
-        return;
+        setError("Kategori gagal diperbarui. Periksa apakah kombinasi nama dan kelas sudah ada.");
+        return false;
       }
       setCategories((prev) =>
         prev.map((c) => (c.id === id ? { ...c, name, description, level } : c))
       );
+      return true;
     },
     [supabase]
   );
@@ -366,6 +421,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.from("categories").delete().eq("id", id);
       if (error) {
         console.error(formatError(error, "deleteCategory"));
+        setError("Kategori gagal dihapus. Data sebelumnya tetap dipertahankan.");
         return;
       }
       setCategories((prev) => prev.filter((c) => c.id !== id));
@@ -376,65 +432,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // ─── Products ──────────────────────────────────────────────────────────
   const addProduct = useCallback(
     async (p: Omit<Product, "id" | "createdAt" | "updatedAt">) => {
-      // Insert produk dulu. Catatan penting (pasca-migrasi Supabase):
-      // `products.stock` dihitung ulang dari `stock_movements` oleh trigger
-      // `sync_product_stock()` — tabel stok TIDAK boleh ditulis langsung.
-      // Jadi stok awal harus dicatat sebagai movement `INITIAL` di bawah.
-      const { data: prodRow, error: prodErr } = await supabase
-        .from("products")
-        .insert({
+      const { data: prodRow, error: prodErr } = await supabase.rpc("create_product_atomic", {
+        p_product: {
           name: p.name,
-          category_id: p.categoryId || null,
-          barcode: p.barcode,
+          category_id: p.categoryId || "",
+          barcode: p.barcode.trim(),
           description: p.description,
           published_year: p.publishedYear,
           semester: p.semester,
-          stock: 0,
           cost_price: p.costPrice ?? 0,
-          image_path: p.imagePath ?? null,
-        })
-        .select()
-        .single();
+          image_path: p.imagePath ?? "",
+        },
+        p_prices: p.prices.map((price) => ({ tier_name: price.tierName, price: price.price, is_default: price.isDefault })),
+        p_initial_stock: p.stock,
+      });
       if (prodErr || !prodRow) {
         console.error(formatError(prodErr, "addProduct"));
+        setError("Produk gagal disimpan. Periksa barcode, harga, dan koneksi database.");
         return null;
       }
 
-      // Stok awal → movement INITIAL (sumber kebenaran stok). Trigger akan
-      // otomatis meng-update products.stock = SUM(movements).
-      if (p.stock > 0) {
-        const { error: stockErr } = await supabase.from("stock_movements").insert({
-          product_id: prodRow.id,
-          type: "INITIAL",
-          quantity: p.stock,
-          reference: "Stock awal",
-          notes: "Stok awal saat produk dibuat",
-        });
-        if (stockErr) console.error(formatError(stockErr, "addProduct initial stock"));
-      }
-
-      // Insert prices (bulk)
-      if (p.prices.length > 0) {
-        const { error: priceErr } = await supabase.from("product_prices").insert(
-          p.prices.map((pr) => ({
-            product_id: prodRow.id,
-            tier_name: pr.tierName,
-            price: pr.price,
-            is_default: pr.isDefault,
-          }))
-        );
-        if (priceErr) console.error(formatError(priceErr, "addProduct prices"));
-      }
-
-      const created = toProduct(prodRow as ProductRow, p.prices.map((pr, i) => ({
+      const createdRow = prodRow as ProductRow;
+      const created = toProduct(createdRow, p.prices.map((pr, i) => ({
         id: `temp-${i}`,
-        product_id: prodRow.id,
+        product_id: createdRow.id,
         tier_name: pr.tierName,
         price: pr.price,
         is_default: pr.isDefault,
       })));
       setProducts((prev) => [...prev, created]);
-      // Refresh untuk dapat UUID asli dari prices (dan stok hasil trigger).
       await refresh();
       return created;
     },
@@ -456,30 +482,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // stock_movements oleh trigger sync_product_stock (pasca-migrasi).
       // Ubah stok lewat adjustStock() (movement ADJUSTMENT).
 
-      if (Object.keys(patch).length > 0) {
-        const { error } = await supabase.from("products").update(patch).eq("id", id);
-        if (error) {
-          console.error(formatError(error, "updateProduct"));
-          return;
-        }
+      const { data, error } = await supabase.rpc("update_product_atomic", {
+        p_id: id,
+        p_patch: patch,
+        p_prices: p.prices === undefined ? null : p.prices.map((price) => ({ tier_name: price.tierName, price: price.price, is_default: price.isDefault })),
+      });
+      if (error || data !== true) {
+        console.error(formatError(error ?? new Error("Product not found"), "updateProduct"));
+        setError("Perubahan produk gagal disimpan. Data sebelumnya tetap dipertahankan.");
+        return false;
       }
-
-      // Ganti seluruh prices kalau dikirim
-      if (p.prices !== undefined) {
-        await supabase.from("product_prices").delete().eq("product_id", id);
-        if (p.prices.length > 0) {
-          await supabase.from("product_prices").insert(
-            p.prices.map((pr) => ({
-              product_id: id,
-              tier_name: pr.tierName,
-              price: pr.price,
-              is_default: pr.isDefault,
-            }))
-          );
-        }
-      }
-
       await refresh();
+      return true;
     },
     [supabase, refresh]
   );
@@ -489,6 +503,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.from("products").delete().eq("id", id);
       if (error) {
         console.error(formatError(error, "deleteProduct"));
+        setError("Produk gagal dihapus. Data sebelumnya tetap dipertahankan.");
         return;
       }
       setProducts((prev) => prev.filter((p) => p.id !== id));
@@ -511,70 +526,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .single();
       if (error || !data) {
         console.error(formatError(error, "addCustomer"));
+        setError("Pelanggan gagal disimpan. Periksa data dan koneksi database.");
         return null;
       }
       const created = toCustomer(data as CustomerRow);
       setCustomers((prev) => [...prev, created]);
       return created;
-    },
-    [supabase]
-  );
-
-  // ─── Stock ─────────────────────────────────────────────────────────────
-  // Dipakai oleh addOrder (checkout walk-in), checkoutOrder (draft→proses),
-  // dan completeOrder (legacy).
-  // Mencatat stock_movements SALE & mengurangi stok. Trigger sync_product_stock
-  // di DB akan otomatis update products.stock.
-  // ANTI-OVERSELL: stok dicek dari DB sebelum movement SALE dicatat.
-  // Kurang → return false, TIDAK ADA pengurangan (parcial atau penuh).
-  const deductStockAndRecord = useCallback(
-    async (orderInvoiceNo: string): Promise<boolean> => {
-      const { data: order, error: findErr } = await supabase
-        .from("orders")
-        .select("id, items:order_items(*)")
-        .eq("invoice_no", orderInvoiceNo)
-        .single();
-      if (findErr || !order) return false;
-
-      const items = (order as unknown as { items: OrderItemRow[] }).items ?? [];
-      const productIds = [
-        ...new Set(items.map((i) => i.product_id).filter((x): x is string => Boolean(x))),
-      ];
-      if (productIds.length > 0) {
-        const { data: prodRows } = await supabase
-          .from("products")
-          .select("id, stock")
-          .in("id", productIds);
-        const stockOf = new Map<string, number>(
-          (prodRows ?? []).map((p: { id: string; stock: number }) => [p.id, p.stock]),
-        );
-        const short = items.filter(
-          (i) => !i.product_id || (stockOf.get(i.product_id) ?? 0) < i.quantity,
-        );
-        if (short.length > 0) {
-          console.error(
-            `[oversell] ${orderInvoiceNo}: ${short
-              .map(
-                (s) =>
-                  `${s.product_name} (stok ${s.product_id ? stockOf.get(s.product_id) ?? 0 : "?"} < ${s.quantity})`,
-              )
-              .join(", ")}`,
-          );
-          return false;
-        }
-      }
-
-      for (const item of items) {
-        if (!item.product_id) continue;
-        const { error } = await supabase.from("stock_movements").insert({
-          product_id: item.product_id,
-          type: "SALE",
-          quantity: -item.quantity,
-          reference: orderInvoiceNo,
-        });
-        if (error) return false;
-      }
-      return true;
     },
     [supabase]
   );
@@ -596,57 +553,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addOrder = useCallback(
     async (o: Omit<Order, "id" | "createdAt" | "updatedAt" | "revisions">) => {
-      const invoice = await getNextInvoiceId();
-
-      // Insert order
-      const { data: orderRow, error: orderErr } = await supabase
-        .from("orders")
-        .insert({
-          invoice_no: invoice,
+      const { data: orderRow, error: orderErr } = await supabase.rpc("create_order_atomic", {
+        p_order: {
           order_date: o.date,
-          customer_id: o.customerId || null,
+          customer_id: o.customerId || "",
           customer_name: o.customerName,
           subtotal: o.subtotal,
           discount: o.discount,
           total: o.total,
           status: o.status,
-        })
-        .select()
-        .single();
-      if (orderErr || !orderRow) {
-        console.error(formatError(orderErr, "addOrder"));
-        return null;
-      }
-
-      // Insert items (bulk)
-      if (o.items.length > 0) {
-        const { error: itemsErr } = await supabase.from("order_items").insert(
-          o.items.map((i) => ({
-            order_id: orderRow.id,
-            product_id: i.productId || null,
-            product_name: i.productName,
-            product_barcode: i.productBarcode,
-            quantity: i.quantity,
-            unit_price: i.unitPrice,
-            price_tier: i.priceTier,
-            custom_price: i.customPrice,
-            discount_percent: i.discountPercent,
-            subtotal: i.subtotal,
-            // Snapshot modal saat dijual agar laba memakai modal yang berlaku
-            // sekarang, bukan modal yang mungkin berubah setelahnya.
-            cost_price:
-              i.costPrice ??
-              products.find((pr) => pr.id === i.productId)?.costPrice ??
-              0,
-          }))
-        );
-        if (itemsErr) console.error(formatError(itemsErr, "addOrder items"));
-      }
-
-      // Surat jalan kalau dikirim
-      if (o.suratJalan) {
-        await supabase.from("surat_jalans").insert({
-          order_id: orderRow.id,
+        },
+        p_items: o.items.map((item) => ({
+          product_id: item.productId || "",
+          product_name: item.productName,
+          product_barcode: item.productBarcode,
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+          price_tier: item.priceTier,
+          custom_price: item.customPrice,
+          discount_percent: item.discountPercent,
+          subtotal: item.subtotal,
+          cost_price: item.costPrice ?? products.find((product) => product.id === item.productId)?.costPrice ?? 0,
+        })),
+        p_surat_jalan: o.suratJalan ? {
           no: o.suratJalan.no,
           tanggal: o.suratJalan.tanggal,
           pengirim: o.suratJalan.pengirim,
@@ -655,38 +584,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           nama_pengirim: o.suratJalan.namaPengirim,
           kendaraan: o.suratJalan.kendaraan,
           catatan: o.suratJalan.catatan,
-        });
+        } : null,
+      });
+      if (orderErr || !orderRow) {
+        console.error(formatError(orderErr, "addOrder"));
+        setError("Pesanan gagal disimpan sepenuhnya. Tidak ada perubahan stok atau pesanan yang diterapkan.");
+        return null;
       }
-
-      // Alur baru: stok TERPOTONG saat pesanan masuk proses (CHECKED_OUT).
-      // Checkout walk-in membuat order langsung CHECKED_OUT → potong di sini.
-      let finalStatus = o.status;
-      if (o.status === "CHECKED_OUT") {
-        const ok = await deductStockAndRecord(invoice);
-        if (!ok) {
-          // Stok tak cukup: jangan hilangkan pesanan — kembalikan jadi DRAFT.
-          console.error(`[oversell] ${invoice} ditolak, dikembalikan ke DRAFT`);
-          await supabase.from("orders").update({ status: "DRAFT" }).eq("invoice_no", invoice);
-          finalStatus = "DRAFT";
-        }
-      }
-
       await refresh();
-      // Kembalikan Order dengan id = invoice_no (konsisten dengan store lama)
       return {
         ...o,
-        status: finalStatus,
-        id: invoice,
+        status: (orderRow as OrderRow).status,
+        id: (orderRow as OrderRow).invoice_no,
         revisions: [],
-        createdAt: orderRow.created_at,
-        updatedAt: orderRow.updated_at,
+        createdAt: (orderRow as OrderRow).created_at,
+        updatedAt: (orderRow as OrderRow).updated_at,
       };
     },
-    [supabase, getNextInvoiceId, refresh, deductStockAndRecord, products]
+    [supabase, refresh, products]
   );
 
   const updateOrder = useCallback(
     async (id: string, patch: Partial<Order>) => {
+      if (patch.status !== undefined) {
+        setError("Perubahan status harus memakai tindakan proses, selesai, atau batalkan agar stok tetap konsisten.");
+        return;
+      }
       // Cari UUID internal order dari invoice_no
       const { data: row, error: findErr } = await supabase
         .from("orders")
@@ -695,6 +618,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .single();
       if (findErr || !row) {
         console.error(formatError(findErr, "updateOrder find"));
+        setError("Pesanan tidak ditemukan atau gagal dimuat untuk diperbarui.");
         return;
       }
       const updates: Record<string, unknown> = {};
@@ -708,12 +632,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const { error } = await supabase.from("orders").update(updates).eq("id", row.id);
         if (error) {
           console.error(formatError(error, "updateOrder"));
+          setError("Perubahan pesanan gagal disimpan. Data sebelumnya tetap dipertahankan.");
           return;
         }
       }
-      await refresh();
+      setOrders((prev) => prev.map((order) => order.id !== id ? order : {
+        ...order,
+        ...(patch.subtotal !== undefined ? { subtotal: patch.subtotal } : {}),
+        ...(patch.discount !== undefined ? { discount: patch.discount } : {}),
+        ...(patch.total !== undefined ? { total: patch.total } : {}),
+        ...(patch.customerName !== undefined ? { customerName: patch.customerName } : {}),
+      }));
     },
-    [supabase, refresh]
+    [supabase]
   );
 
   const updateSuratJalan = useCallback(
@@ -723,14 +654,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .select("id, customer_name, order_date")
         .eq("invoice_no", id)
         .single();
-      if (findErr || !row) return;
+      if (findErr || !row) {
+        console.error(formatError(findErr, "updateSuratJalan find"));
+        setError("Data pesanan gagal dimuat. Surat jalan belum diubah.");
+        return;
+      }
 
       // Cek apakah surat jalan sudah ada
-      const { data: existing } = await supabase
+      const { data: existing, error: existingError } = await supabase
         .from("surat_jalans")
         .select("*")
         .eq("order_id", row.id)
         .maybeSingle();
+      if (existingError) {
+        console.error(formatError(existingError, "updateSuratJalan lookup"));
+        setError("Surat jalan gagal dimuat. Perubahan belum disimpan.");
+        return;
+      }
 
       const base: SuratJalan = existing
         ? {
@@ -757,7 +697,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const merged: SuratJalan = { ...base, ...data };
 
       if (existing) {
-        await supabase
+        const { error } = await supabase
           .from("surat_jalans")
           .update({
             no: merged.no,
@@ -770,8 +710,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             catatan: merged.catatan,
           })
           .eq("order_id", row.id);
+        if (error) {
+          console.error(formatError(error, "updateSuratJalan update"));
+          setError("Surat jalan gagal diperbarui. Data sebelumnya tetap dipertahankan.");
+          return;
+        }
       } else {
-        await supabase.from("surat_jalans").insert({
+        const { error } = await supabase.from("surat_jalans").insert({
           order_id: row.id,
           no: merged.no,
           tanggal: merged.tanggal,
@@ -782,10 +727,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           kendaraan: merged.kendaraan,
           catatan: merged.catatan,
         });
+        if (error) {
+          console.error(formatError(error, "updateSuratJalan insert"));
+          setError("Surat jalan gagal disimpan. Data sebelumnya tetap dipertahankan.");
+          return;
+        }
       }
-      await refresh();
+      setOrders((prev) => prev.map((order) => order.id === id ? { ...order, suratJalan: merged } : order));
     },
-    [supabase, refresh]
+    [supabase]
   );
 
   // ─── Status transitions ────────────────────────────────────────────────
@@ -793,91 +743,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Stok terpotong saat MASUK PROSES (→ CHECKED_OUT), bukan saat selesai.
   const checkoutOrder = useCallback(
     async (id: string): Promise<boolean> => {
-      const order = orders.find((o) => o.id === id);
-      if (!order || order.status !== "DRAFT") return false;
-      if (!(await deductStockAndRecord(id))) return false;
-      const { error } = await supabase
-        .from("orders")
-        .update({ status: "CHECKED_OUT" })
-        .eq("invoice_no", id);
+      const { data, error } = await supabase.rpc("transition_order_atomic", { p_invoice_no: id, p_target: "CHECKED_OUT" });
       if (error) {
         console.error(formatError(error, "checkoutOrder"));
+        setError("Pesanan tidak dapat diproses. Periksa stok dan coba lagi.");
         return false;
       }
+      if (data !== true) return false;
       await refresh();
       return true;
     },
-    [supabase, deductStockAndRecord, refresh, orders]
+    [supabase, refresh]
   );
 
   const completeOrder = useCallback(
     async (id: string): Promise<boolean> => {
-      const order = orders.find((o) => o.id === id);
-      if (!order || order.status !== "CHECKED_OUT") return false;
-      // Legacy: pesanan CHECKED_OUT yang dibuat sebelum alur ini stoknya
-      // belum terpotong (dulu dipotong saat selesai) → potong di sini.
-      const { data: movs } = await supabase
-        .from("stock_movements")
-        .select("type")
-        .eq("reference", id);
-      const alreadyDeducted = (movs ?? []).some((m: { type: string }) => m.type === "SALE");
-      if (!alreadyDeducted && !(await deductStockAndRecord(id))) return false;
-      const { error } = await supabase
-        .from("orders")
-        .update({ status: "COMPLETED" })
-        .eq("invoice_no", id);
+      const { data, error } = await supabase.rpc("transition_order_atomic", { p_invoice_no: id, p_target: "COMPLETED" });
       if (error) {
         console.error(formatError(error, "completeOrder"));
+        setError("Pesanan gagal ditandai selesai. Periksa status dan stok lalu coba lagi.");
         return false;
       }
+      if (data !== true) return false;
       await refresh();
       return true;
     },
-    [supabase, deductStockAndRecord, refresh, orders]
+    [supabase, refresh]
   );
 
   const cancelOrder = useCallback(
     async (id: string): Promise<boolean> => {
-      const order = orders.find((o) => o.id === id);
-      if (!order) return false;
-      // COMPLETED bersifat FINAL: buku penjualan & riwayat tidak berubah.
-      // Koreksi kesalahan lewat penyesuaian stok, bukan membatalkan.
-      if (order.status === "COMPLETED") {
-        console.error(`[cancel] ${id} ditolak: pesanan COMPLETED bersifat final`);
-        return false;
-      }
-      // CHECKED_OUT: stok sudah terpotong saat masuk proses → kembalikan
-      // (hanya bila memang terpotong — pesanan legacy belum dipotong).
-      if (order.status === "CHECKED_OUT") {
-        const { data: movs } = await supabase
-          .from("stock_movements")
-          .select("type")
-          .eq("reference", id);
-        if ((movs ?? []).some((m: { type: string }) => m.type === "SALE")) {
-          for (const item of order.items) {
-            if (!item.productId) continue;
-            await supabase.from("stock_movements").insert({
-              product_id: item.productId,
-              type: "RETURN",
-              quantity: item.quantity,
-              reference: id,
-            });
-          }
-        }
-      }
-
-      const { error } = await supabase
-        .from("orders")
-        .update({ status: "CANCELLED" })
-        .eq("invoice_no", id);
+      const { data, error } = await supabase.rpc("transition_order_atomic", { p_invoice_no: id, p_target: "CANCELLED" });
       if (error) {
         console.error(formatError(error, "cancelOrder"));
+        setError("Pesanan gagal dibatalkan. Stok dan status tetap dipertahankan.");
         return false;
       }
+      if (data !== true) return false;
       await refresh();
       return true;
     },
-    [supabase, refresh, orders]
+    [supabase, refresh]
   );
 
   // Arsip: sembunyikan dari daftar tanpa menghapus — ledger stok & total
@@ -889,12 +795,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         .select("id")
         .eq("invoice_no", id)
         .single();
-      if (findErr || !row) return;
+      if (findErr || !row) {
+        console.error(formatError(findErr, "archiveOrder find"));
+        setError("Pesanan gagal dimuat untuk pengarsipan.");
+        return;
+      }
       const { error } = await supabase.from("orders").update({ archived }).eq("id", row.id);
-      if (error) console.error(formatError(error, "archiveOrder"));
-      await refresh();
+      if (error) {
+        console.error(formatError(error, "archiveOrder"));
+        setError("Status arsip pesanan gagal diperbarui.");
+        return;
+      }
+      setOrders((prev) => prev.map((order) => order.id === id ? { ...order, archived } : order));
     },
-    [supabase, refresh]
+    [supabase]
   );
 
   // Hapus permanen: orders ON DELETE CASCADE akan menghapus order_items,
@@ -902,23 +816,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // (reference = invoice_no) ikut dibersihkan manual agar stok kembali sinkron.
   const deleteOrder = useCallback(
     async (id: string): Promise<boolean> => {
-      const { data: row, error: findErr } = await supabase
-        .from("orders")
-        .select("id")
-        .eq("invoice_no", id)
-        .single();
-      if (findErr || !row) {
-        console.error(formatError(findErr, "deleteOrder find"));
-        return false;
-      }
-      // Hapus movements SALE/RETURN/CANCELLED_ORDER yang terikat invoice ini terlebih dulu
-      // agar trigger sync_product_stock menghitung ulang stok dengan benar.
-      await supabase.from("stock_movements").delete().eq("reference", id);
-      const { error } = await supabase.from("orders").delete().eq("id", row.id);
+      const { data, error } = await supabase.rpc("delete_order_atomic", { p_invoice_no: id });
       if (error) {
         console.error(formatError(error, "deleteOrder"));
+        setError("Pesanan gagal dihapus. Data sebelumnya tetap dipertahankan.");
         return false;
       }
+      if (data !== true) return false;
       await refresh();
       return true;
     },
@@ -928,27 +832,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // ─── Stock ─────────────────────────────────────────────────────────────
   const adjustStock = useCallback(
     async (productId: string, qty: number, reference: string) => {
+      if (!Number.isInteger(qty) || qty === 0 || !reference.trim()) {
+        setError("Penyesuaian stok memerlukan jumlah bulat selain nol dan catatan.");
+        return false;
+      }
       const { error } = await supabase.from("stock_movements").insert({
         product_id: productId,
         type: "ADJUSTMENT",
         quantity: qty,
         reference,
       });
-      if (error) console.error(formatError(error, "adjustStock"));
+      if (error) {
+        console.error(formatError(error, "adjustStock"));
+        setError("Penyesuaian stok gagal disimpan. Stok sebelumnya tetap dipertahankan.");
+        return false;
+      }
       await refresh();
+      return true;
     },
     [supabase, refresh]
   );
 
-  return (
-    <StoreContext.Provider
-      value={{
-        categories,
-        products,
-        customers,
-        orders,
-        movements,
+  const hasCurrentUserData = Boolean(authUserId && authUserId === dataUserId);
+  const value = useMemo<StoreValue>(() => ({
+        categories: hasCurrentUserData ? categories : [],
+        products: hasCurrentUserData ? products : [],
+        customers: hasCurrentUserData ? customers : [],
+        orders: hasCurrentUserData ? orders : [],
+        movements: hasCurrentUserData ? movements : [],
         loading,
+        error,
         addCategory,
         updateCategory,
         deleteCategory,
@@ -967,11 +880,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         archiveOrder,
         deleteOrder,
         refresh,
-      }}
-    >
-      {children}
-    </StoreContext.Provider>
-  );
+      }), [
+        hasCurrentUserData, categories, products, customers, orders, movements, loading, error,
+        addCategory, updateCategory, deleteCategory, addProduct, updateProduct,
+        deleteProduct, addCustomer, addOrder, updateOrder, updateSuratJalan,
+        checkoutOrder, completeOrder, cancelOrder, getNextInvoiceId, adjustStock,
+        archiveOrder, deleteOrder, refresh,
+      ]);
+
+  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
 
 export function useStore() {

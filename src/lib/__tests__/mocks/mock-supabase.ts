@@ -69,6 +69,7 @@ interface TableBuilder extends ThenableNode {
   lte(col: string, val: unknown): TableBuilder;
   or(spec: string): TableBuilder;
   limit(n: number): TableBuilder;
+  range(from: number, to: number): TableBuilder;
   single(): Promise<QueryResult>;
   maybeSingle(): Promise<QueryResult>;
   insert(rowsVal: Row | Row[]): InsertNode;
@@ -202,6 +203,7 @@ export class MockSupabase {
   rpcImpl?: (name: string) => string;
   /** Kalau true, semua rpc() mengembalikan error (untuk uji fallback). */
   rpcFail = false;
+  failSelectTable: string | null = null;
   /**
    * Kalau true, mock mensimulasikan perilaku DB sungguhan yang tidak dimiliki
    * mock lama: trigger sync_product_stock (movement → products.stock) dan
@@ -221,6 +223,7 @@ export class MockSupabase {
     for (const k of Object.keys(this.tables)) delete this.tables[k];
     for (const [k, v] of Object.entries(seed)) this.tables[k] = v.map((r) => ({ ...r }));
     this.calls = [];
+    this.failSelectTable = null;
   }
 
   private record(op: string, table: string, args: unknown) {
@@ -245,6 +248,7 @@ export class MockSupabase {
       filters: [] as Filter[],
       orderBy: [] as { col: string; asc: boolean }[],
       limitN: undefined as number | undefined,
+      range: undefined as { from: number; to: number } | undefined,
     };
 
     const parseOr = (spec: string): Filter[] =>
@@ -306,6 +310,11 @@ export class MockSupabase {
       }
       return r;
     };
+    const applyResult = (rows: Row[]) => {
+      let result = applyOrder(applyFilters(rows));
+      if (selectState.range) result = result.slice(selectState.range.from, selectState.range.to + 1);
+      return result;
+    };
     // "id, items:order_items(*)" -> [{alias: "items", table: "order_items"}]
     const parseEmbeds = (cols: string) => {
       const out: { alias: string; table: string }[] = [];
@@ -363,19 +372,23 @@ export class MockSupabase {
         selectState.limitN = n;
         return builder;
       },
+      range(from: number, to: number) {
+        selectState.range = { from, to };
+        return builder;
+      },
       single: async () => {
         this.record("select.single", table, {
           columns: selectState.columns,
           filters: selectState.filters,
         });
-        const rows = enrich(applyOrder(applyFilters(store())));
+        const rows = enrich(applyResult(store()));
         if (rows.length === 0) {
           return err({ code: "PGRST116", message: "The result contains 0 rows", details: "", hint: "" });
         }
         return ok(rows[0]);
       },
       maybeSingle: async () => {
-        const rows = enrich(applyOrder(applyFilters(store())));
+        const rows = enrich(applyResult(store()));
         return ok(rows[0] ?? null);
       },
       insert: (rowsVal: Row | Row[]) => {
@@ -525,7 +538,8 @@ export class MockSupabase {
               filters: selectState.filters,
               orderBy: selectState.orderBy,
             });
-            return ok(enrich(applyOrder(applyFilters(store()))));
+            if (this.failSelectTable === table) return err({ message: "select_failed: " + table });
+            return ok(enrich(applyResult(store())));
           })
           .then(resolve, reject);
       },
@@ -534,8 +548,50 @@ export class MockSupabase {
     return builder;
   }
 
-  rpc(name: string): Promise<{ data: unknown; error: unknown }> {
-    const record = () => this.record("rpc", name, {});
+  private createMovement(productId: string, type: string, quantity: number, reference: string) {
+    const movement = { id: crypto.randomUUID(), product_id: productId, type, quantity, reference, notes: null, created_by: null, created_at: "2026-01-01" };
+    this.tables.stock_movements ??= [];
+    this.record("insert", "stock_movements", [movement]);
+    this.tables.stock_movements.push(movement);
+    if (this.simulateDbBehavior) {
+      const product = (this.tables.products ?? []).find((row) => row.id === productId);
+      if (product) product.stock = Math.max(0, (this.tables.stock_movements ?? []).filter((row) => row.product_id === productId).reduce((sum, row) => sum + Number(row.quantity ?? 0), 0));
+    }
+  }
+
+  private nextInvoice() {
+    const numbers = (this.tables.orders ?? []).map((row) => /^INV-(\d+)$/.exec(String(row.invoice_no))?.[1]).filter(Boolean).map(Number);
+    return `INV-${String(Math.max(0, ...numbers) + 1).padStart(3, "0")}`;
+  }
+
+  private applyOrderStock(order: Row, action: "SALE" | "RETURN"): { error: unknown } | null {
+    const invoice = String(order.invoice_no);
+    const orderItems = (this.tables.order_items ?? []).filter((row) => row.order_id === order.id);
+    const required = new Map<string, number>();
+    for (const item of orderItems) {
+      const productId = String(item.product_id ?? "");
+      if (!productId) continue;
+      required.set(productId, (required.get(productId) ?? 0) + Number(item.quantity));
+    }
+    const saleRows = (this.tables.stock_movements ?? []).filter((row) => row.reference === invoice && row.type === "SALE");
+    const targetRows = (this.tables.stock_movements ?? []).filter((row) => row.reference === invoice && row.type === action);
+    if (action === "SALE" && saleRows.length) return null;
+    if (action === "RETURN" && targetRows.length) return null;
+    if (action === "RETURN" && saleRows.length === 0) return null;
+    if (action === "SALE") {
+      for (const [productId, quantity] of required) {
+        const product = (this.tables.products ?? []).find((row) => row.id === productId);
+        if (!product || Number(product.stock ?? 0) < quantity) return { error: { code: "P0001", message: "insufficient stock" } };
+      }
+      if (orderItems.some((item) => !item.product_id)) return { error: { code: "P0001", message: "item has no product reference" } };
+      if (!required.size) return { error: { code: "P0001", message: "empty order" } };
+    }
+    for (const [productId, quantity] of required) this.createMovement(productId, action, action === "SALE" ? -quantity : quantity, invoice);
+    return null;
+  }
+
+  rpc(name: string, args: Row = {}): Promise<{ data: unknown; error: unknown }> {
+    const record = () => this.record("rpc", name, args);
     return Promise.resolve().then(() => {
       record();
       if (this.rpcFail) {
@@ -543,6 +599,140 @@ export class MockSupabase {
       }
       if (name === "next_invoice_no" && this.rpcImpl) {
         return { data: this.rpcImpl("next_invoice_no"), error: null };
+      }
+      if (name === "create_order_atomic") {
+        const source = args.p_order as Row;
+        const incoming = args.p_items as Row[];
+        const status = String(source.status ?? "DRAFT");
+        if (!Array.isArray(incoming) || incoming.length === 0) return { data: null, error: { message: "Order must contain at least one item" } };
+        const invoice = this.nextInvoice();
+        const order: Row = {
+          id: crypto.randomUUID(), invoice_no: invoice, order_date: source.order_date,
+          customer_id: source.customer_id || null, customer_name: source.customer_name,
+          subtotal: source.subtotal, discount: source.discount, total: source.total,
+          status: "DRAFT", archived: false, notes: null, created_by: null,
+          created_at: "2026-01-01", updated_at: "2026-01-01",
+        };
+        const orderItems = incoming.map((item) => ({
+          id: crypto.randomUUID(), order_id: order.id, product_id: item.product_id || null,
+          product_name: item.product_name, product_barcode: item.product_barcode ?? "",
+          quantity: item.quantity, unit_price: item.unit_price, price_tier: item.price_tier ?? "Normal",
+          custom_price: item.custom_price, discount_percent: item.discount_percent,
+          subtotal: item.subtotal, cost_price: item.cost_price ?? 0, created_at: "2026-01-01",
+        }));
+        const e = validateRow("orders", order) ?? orderItems.map((item) => validateRow("order_items", item)).find(Boolean);
+        if (e) return { data: null, error: e };
+        this.tables.orders ??= [];
+        this.tables.order_items ??= [];
+        this.tables.surat_jalans ??= [];
+        this.tables.stock_movements ??= [];
+        const previous = { orders: [...this.tables.orders], order_items: [...this.tables.order_items], surat_jalans: [...this.tables.surat_jalans], stock_movements: [...this.tables.stock_movements] };
+        this.tables.orders.push(order);
+        this.tables.order_items.push(...orderItems);
+        this.record("insert", "orders", [order]);
+        this.record("insert", "order_items", orderItems);
+        const delivery = args.p_surat_jalan as Row | null;
+        if (delivery) {
+          const suratJalan = { id: crypto.randomUUID(), order_id: order.id, no: delivery.no ?? "", tanggal: delivery.tanggal || source.order_date, pengirim: delivery.pengirim ?? "", penerima: delivery.penerima ?? "", estimasi: delivery.estimasi ?? "", nama_pengirim: delivery.nama_pengirim ?? "", kendaraan: delivery.kendaraan ?? "", catatan: delivery.catatan ?? "" };
+          this.tables.surat_jalans.push(suratJalan);
+          this.record("insert", "surat_jalans", [suratJalan]);
+        }
+        if (status === "CHECKED_OUT") {
+          const stockError = this.applyOrderStock(order, "SALE");
+          if (stockError) {
+            this.tables.orders = previous.orders; this.tables.order_items = previous.order_items;
+            this.tables.surat_jalans = previous.surat_jalans; this.tables.stock_movements = previous.stock_movements;
+            return { data: null, error: stockError.error };
+          }
+          order.status = "CHECKED_OUT";
+        }
+        return { data: order, error: null };
+      }
+      if (name === "transition_order_atomic") {
+        const order = (this.tables.orders ?? []).find((row) => row.invoice_no === args.p_invoice_no);
+        if (!order) return { data: false, error: null };
+        const target = String(args.p_target);
+        if (target === "CHECKED_OUT" && order.status === "DRAFT") {
+          const stockError = this.applyOrderStock(order, "SALE");
+          if (stockError) return { data: null, error: stockError.error };
+        } else if (target === "COMPLETED" && order.status === "CHECKED_OUT") {
+          const stockError = this.applyOrderStock(order, "SALE");
+          if (stockError) return { data: null, error: stockError.error };
+        } else if (target === "CANCELLED" && order.status === "CHECKED_OUT") {
+          const stockError = this.applyOrderStock(order, "RETURN");
+          if (stockError) return { data: null, error: stockError.error };
+        } else if ((target === "CHECKED_OUT" && order.status === "CHECKED_OUT") || (target === "COMPLETED" && order.status === "COMPLETED") || (target === "CANCELLED" && order.status === "CANCELLED")) {
+          return { data: true, error: null };
+        } else if (target === "CANCELLED" && order.status === "DRAFT") {
+          // Draft cancellation has no stock effect.
+        } else {
+          return { data: false, error: null };
+        }
+        order.status = target;
+        return { data: true, error: null };
+      }
+      if (name === "delete_order_atomic") {
+        const index = (this.tables.orders ?? []).findIndex((row) => row.invoice_no === args.p_invoice_no);
+        if (index < 0) return { data: false, error: null };
+        const orderMovementTypes = ["SALE", "RETURN", "CANCELLED_ORDER"];
+        this.record("delete", "stock_movements", { filters: [{ kind: "eq", col: "reference", val: args.p_invoice_no }, { kind: "in", col: "type", vals: orderMovementTypes }] });
+        const removedMovements = (this.tables.stock_movements ?? []).filter((row) => row.reference === args.p_invoice_no && orderMovementTypes.includes(String(row.type)));
+        this.tables.stock_movements = (this.tables.stock_movements ?? []).filter((row) => !(row.reference === args.p_invoice_no && orderMovementTypes.includes(String(row.type))));
+        if (this.simulateDbBehavior) {
+          for (const productId of new Set(removedMovements.map((row) => String(row.product_id)))) {
+            const product = (this.tables.products ?? []).find((row) => row.id === productId);
+            if (product) product.stock = Math.max(0, (this.tables.stock_movements ?? []).filter((row) => row.product_id === productId).reduce((sum, row) => sum + Number(row.quantity ?? 0), 0));
+          }
+        }
+        const [deleted] = this.tables.orders.splice(index, 1);
+        this.record("delete", "orders", { filters: [{ kind: "eq", col: "id", val: deleted.id }] });
+        this.tables.order_items = (this.tables.order_items ?? []).filter((row) => row.order_id !== deleted.id);
+        this.tables.surat_jalans = (this.tables.surat_jalans ?? []).filter((row) => row.order_id !== deleted.id);
+        return { data: true, error: null };
+      }
+      if (name === "create_product_atomic") {
+        const source = args.p_product as Row;
+        const prices = args.p_prices as Row[];
+        const product: Row = { id: crypto.randomUUID(), name: source.name, category_id: source.category_id || null, barcode: source.barcode ?? "", description: source.description ?? "", published_year: source.published_year, semester: source.semester ?? "Ganjil", stock: 0, cost_price: source.cost_price ?? 0, image_path: source.image_path || null, created_at: "2026-01-01", updated_at: "2026-01-01" };
+        const e = validateRow("products", product);
+        if (e) return { data: null, error: e };
+        if (String(product.barcode).trim() && (this.tables.products ?? []).some((row) => String(row.barcode).trim().toLowerCase() === String(product.barcode).trim().toLowerCase())) return { data: null, error: { code: "23505", message: "duplicate barcode" } };
+        const priceRows = prices.map((price) => ({ id: crypto.randomUUID(), product_id: product.id, tier_name: price.tier_name, price: price.price, is_default: price.is_default, created_at: "2026-01-01", updated_at: "2026-01-01" }));
+        const duplicateTiers = new Set(priceRows.map((row) => row.tier_name)).size !== priceRows.length;
+        const priceError = priceRows.map((row) => validateRow("product_prices", row)).find(Boolean);
+        if (duplicateTiers || priceError) return { data: null, error: priceError ?? { code: "23505", message: "duplicate product price tier" } };
+        this.tables.products ??= []; this.tables.products.push(product);
+        this.tables.product_prices ??= []; this.tables.product_prices.push(...priceRows);
+        this.record("insert", "products", [product]);
+        this.record("insert", "product_prices", priceRows);
+        if (Number(args.p_initial_stock) > 0) {
+          this.createMovement(String(product.id), "INITIAL", Number(args.p_initial_stock), "Stock awal");
+          product.stock = Number(args.p_initial_stock);
+        }
+        return { data: product, error: null };
+      }
+      if (name === "update_product_atomic") {
+        const product = (this.tables.products ?? []).find((row) => row.id === args.p_id);
+        if (!product) return { data: false, error: null };
+        const patch = args.p_patch as Row;
+        const updated = { ...product, ...patch };
+        const productError = validateRow("products", updated);
+        if (productError) return { data: null, error: productError };
+        let priceRows = [...(this.tables.product_prices ?? [])];
+        if (args.p_prices !== null) {
+          const incoming = args.p_prices as Row[];
+          const names = incoming.map((row) => String(row.tier_name));
+          if (new Set(names).size !== names.length || incoming.filter((row) => row.is_default).length > 1) return { data: null, error: { code: "23505", message: "duplicate product price tier or default" } };
+          const replacements = incoming.map((price) => ({ id: (priceRows.find((row) => row.product_id === args.p_id && row.tier_name === price.tier_name)?.id as string | undefined) ?? crypto.randomUUID(), product_id: args.p_id, tier_name: price.tier_name, price: price.price, is_default: price.is_default, created_at: "2026-01-01", updated_at: "2026-01-01" }));
+          const priceError = replacements.map((row) => validateRow("product_prices", row)).find(Boolean);
+          if (priceError) return { data: null, error: priceError };
+          priceRows = priceRows.filter((row) => row.product_id !== args.p_id).concat(replacements);
+        }
+        Object.assign(product, updated);
+        this.record("update", "products", { patch, filters: [{ col: "id", val: args.p_id }] });
+        if (args.p_prices !== null) this.record("replace", "product_prices", { product_id: args.p_id, rows: args.p_prices });
+        this.tables.product_prices = priceRows;
+        return { data: true, error: null };
       }
       return { data: null, error: { message: `rpc_not_implemented: ${name}` } };
     });

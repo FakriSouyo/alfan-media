@@ -20,7 +20,7 @@ const items: QueueItem[] = [
   { icon: BookOpen, label: "Buku baru ditambahkan", subtitle: "Laskar Pelangi — Andrea Hirata", delay: "-8s", badge: 1 },
   { icon: ScanBarcode, label: "Verifikasi ISBN", subtitle: "Bumi Manusia — Pramoedya A.T.", delay: "-6s", badge: 2 },
   { icon: Cloud, label: "Sinkronisasi katalog", subtitle: "Menyimpan ke cloud", delay: "-4s", badge: 3 },
-  { icon: Database, label: "Basis data diperbarui", subtitle: "1.204 judul tercatat", delay: "-2s", badge: 4 },
+  { icon: Database, label: "Basis data diperbarui", subtitle: "Katalog tersinkronisasi", delay: "-2s", badge: 4 },
 ];
 
 /**

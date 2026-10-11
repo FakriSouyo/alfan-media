@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -281,6 +282,7 @@ export function AgentChat() {
   const [clearOpen, setClearOpen] = useState(false);
   const historyRef = useRef<HistoryContext | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const approvalInFlightRef = useRef(new Set<string>());
 
   // Persist riwayat saat turunan selesai (busy=false) — bukan per-delta,
   // supaya tidak menulis localStorage pada tiap token streaming.
@@ -525,6 +527,9 @@ export function AgentChat() {
     },
     [applyEvent, busy, patchMessage, selectedPair, refresh],
   );
+  const handleCandidate = useCallback((candidate: Candidate) => {
+    void send(candidate.label);
+  }, [send]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -538,8 +543,8 @@ export function AgentChat() {
 
   const decideApproval = useCallback(
     async (msgId: string, approvalId: string, decision: "approve" | "reject") => {
-      const approval = messages.find((m) => m.id === msgId)?.approval;
-      if (!approval || approval.state !== "pending") return;
+      if (approvalInFlightRef.current.has(approvalId)) return;
+      approvalInFlightRef.current.add(approvalId);
       patchMessage(msgId, (m) =>
         m.approval ? { approval: { ...m.approval, state: "submitting" } } : {},
       );
@@ -563,6 +568,7 @@ export function AgentChat() {
           });
         }
       } finally {
+        approvalInFlightRef.current.delete(approvalId);
         patchMessage(msgId, (m) =>
           m.approval
             ? { approval: { ...m.approval, state: decision === "approve" ? "approved" : "rejected" } }
@@ -578,7 +584,7 @@ export function AgentChat() {
         void refresh();
       }
     },
-    [applyEvent, messages, patchMessage, refresh],
+    [applyEvent, patchMessage, refresh],
   );
 
   useEffect(() => {
@@ -675,16 +681,9 @@ export function AgentChat() {
                   key={message.id}
                   message={message}
                   busy={busy}
-                  now={now}
-                  onCandidate={(candidate) => void send(candidate.label)}
-                  onApprove={() =>
-                    message.approval &&
-                    void decideApproval(message.id, message.approval.approvalId, "approve")
-                  }
-                  onReject={() =>
-                    message.approval &&
-                    void decideApproval(message.id, message.approval.approvalId, "reject")
-                  }
+                  now={message.status === "streaming" ? now : 0}
+                  onCandidate={handleCandidate}
+                  onDecision={decideApproval}
                 />
               ))}
             </AnimatePresence>
@@ -768,21 +767,19 @@ export function AgentChat() {
 
 // ─── Rows ────────────────────────────────────────────────────────────────────
 
-function MessageRow({
+const MessageRow = memo(function MessageRow({
   message,
   busy,
   now,
   onCandidate,
-  onApprove,
-  onReject,
+  onDecision,
 }: {
   message: ChatMessage;
   busy: boolean;
   /** Jam "sekarang" (tick 0,5 dtk saat busy) untuk durasi live. */
   now: number;
   onCandidate: (candidate: Candidate) => void;
-  onApprove: () => void;
-  onReject: () => void;
+  onDecision: (messageId: string, approvalId: string, decision: "approve" | "reject") => void;
 }) {
   if (message.role === "user") {
     return (
@@ -909,8 +906,8 @@ function MessageRow({
                     : "pending"
             }
             approveLabel="Setujui"
-            onApprove={onApprove}
-            onReject={onReject}
+            onApprove={() => onDecision(message.id, message.approval!.approvalId, "approve")}
+            onReject={() => onDecision(message.id, message.approval!.approvalId, "reject")}
             className="w-full"
           >
             {message.approval.parameters.length > 0 ? (
@@ -963,7 +960,7 @@ function MessageRow({
       </MessageContent>
     </Message>
   );
-}
+});
 
 // ─── Empty state ─────────────────────────────────────────────────────────────
 

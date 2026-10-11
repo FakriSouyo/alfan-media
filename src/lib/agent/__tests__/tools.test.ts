@@ -14,7 +14,8 @@ import {
 } from "@/lib/agent/tools/products";
 import { runGetLowStock, runGetStock, runUpdateStock } from "@/lib/agent/tools/stock";
 import { runGetSales, runGetSalesSummary, runGetTopSelling, runGetTodaySales } from "@/lib/agent/tools/sales";
-import { resolveProduct } from "@/lib/agent/tools/shared";
+import { periodRange, resolveProduct } from "@/lib/agent/tools/shared";
+import { businessDate } from "@/lib/business-date";
 
 const ADMIN: AgentUser = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "admin" };
 const STAFF: AgentUser = { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", role: "staff" };
@@ -32,17 +33,18 @@ const ID = {
 } as const;
 
 function iso(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
 
 function seedDb(): Record<string, Row[]> {
   const now = new Date();
-  const today = iso(now);
+  const today = businessDate(now);
   // Tanggal di pertengahan bulan sebelumnya (pasti ≠ bulan ini).
-  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 15);
+  const [year, month] = today.slice(0, 7).split("-").map(Number);
+  const prevMonth = new Date(Date.UTC(year, month - 2, 15));
   const prevDay = iso(prevMonth);
   return {
     categories: [
@@ -382,7 +384,18 @@ describe("tools: stock", () => {
   });
 });
 
-describe("tools: sales (hanya COMPLETED)", () => {
+describe("tools: sales", () => {
+  it("menggunakan kalender Asia/Makassar untuk batas periode", () => {
+    expect(periodRange({ kind: "today" }, new Date("2026-10-01T18:30:00.000Z"))).toEqual({
+      from: "2026-10-02",
+      to: "2026-10-02",
+    });
+    expect(periodRange({ kind: "last_month" }, new Date("2026-01-31T18:30:00.000Z"))).toEqual({
+      from: "2026-01-01",
+      to: "2026-01-31",
+    });
+  });
+
   it("runGetTodaySales: hanya transaksi hari ini", async () => {
     const { ctx } = makeCtx();
     const res = await runGetTodaySales(ctx);
@@ -428,6 +441,28 @@ describe("tools: sales (hanya COMPLETED)", () => {
     expect(res.data.items[0].name).toBe("Algebra X");
     expect(res.data.items[0].quantity).toBe(3);
     expect(res.data.items[0].revenue).toBe(150000);
+  });
+
+  it("mengikutsertakan checkout, mengecualikan draft/batal, dan mengalokasikan diskon per produk", async () => {
+    const { ctx, mock } = makeCtx();
+    const today = businessDate();
+    mock.tables.orders.push(
+      { id: "55555555-5555-4555-8555-555555555557", invoice_no: "INV-003", order_date: today, customer_id: null, customer_name: "Toko B", subtotal: 100000, discount: 10000, total: 90000, status: "CHECKED_OUT", notes: null, created_by: null, created_at: today, updated_at: today },
+      { id: "55555555-5555-4555-8555-555555555558", invoice_no: "INV-004", order_date: today, customer_id: null, customer_name: "Toko C", subtotal: 500000, discount: 0, total: 500000, status: "DRAFT", notes: null, created_by: null, created_at: today, updated_at: today },
+      { id: "55555555-5555-4555-8555-555555555559", invoice_no: "INV-005", order_date: today, customer_id: null, customer_name: "Toko D", subtotal: 500000, discount: 0, total: 500000, status: "CANCELLED", notes: null, created_by: null, created_at: today, updated_at: today },
+    );
+    mock.tables.order_items.push(
+      { id: "66666666-6666-4666-8666-666666666667", order_id: "55555555-5555-4555-8555-555555555557", product_id: ID.p1, product_name: "Algebra X", product_barcode: "8990000000011", quantity: 1, unit_price: 50000, price_tier: "Normal", custom_price: null, discount_percent: 0, subtotal: 50000, created_at: today },
+      { id: "66666666-6666-4666-8666-666666666668", order_id: "55555555-5555-4555-8555-555555555557", product_id: ID.p2, product_name: "Algebra X", product_barcode: "8990000000028", quantity: 1, unit_price: 50000, price_tier: "Normal", custom_price: null, discount_percent: 0, subtotal: 50000, created_at: today },
+    );
+    const res = await runGetTodaySales(ctx);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.transactions).toBe(2);
+    expect(res.data.total).toBe(240000);
+    expect(res.data.itemsSold).toBe(5);
+    expect(res.data.topProducts.filter((item) => item.name === "Algebra X")).toHaveLength(2);
+    expect(res.data.topProducts.find((item) => item.quantity === 1)?.revenue).toBe(45000);
   });
 });
 

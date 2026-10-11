@@ -114,14 +114,14 @@ export function ProductImageUpload({
         onDragOver={(event) => event.preventDefault()}
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
-        className={`flex min-h-32 w-full cursor-pointer items-center gap-4 rounded-xl border border-dashed p-4 transition-colors focus:outline-none focus:ring-2 focus:ring-ring sm:min-h-36 ${
+        className={`flex w-full cursor-pointer items-center gap-4 rounded-xl border border-dashed p-4 transition-colors focus:outline-none focus:ring-2 focus:ring-ring ${
           dragging ? "border-foreground bg-foreground/[0.06]" : "border-border/80 bg-muted/20 hover:bg-muted/40"
         }`}
       >
-        <div className="relative flex h-28 w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-background">
+        <div className="relative flex aspect-[2/3] w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-background">
         {publicUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={publicUrl} alt="Sampul produk" className="h-full w-full object-cover" />
+          <img src={publicUrl} alt="Sampul produk" className="h-full w-full object-contain" />
         ) : (
           <ImagePlus size={22} className="text-muted-foreground/50" />
         )}

@@ -1,6 +1,6 @@
 // ─── Categories ───────────────────────────────────────────────
 /** Jenjang pendidikan untuk kategori buku pelajaran. */
-export type CategoryLevel = "SD" | "SMP" | "SMA";
+export type CategoryLevel = "SD" | "SMP" | "MTs" | "SMA" | "MA";
 
 export interface Category {
   id: string;

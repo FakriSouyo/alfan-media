@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import { Providers } from "./providers";
 
@@ -27,6 +28,11 @@ export default function RootLayout({
 }: LayoutProps<"/">) {
   return (
     <html lang="id" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        <Script id="theme-init" strategy="beforeInteractive">
+          {`try{var t=localStorage.getItem('tokobuku_theme');if(t==='dark'){document.documentElement.classList.add('dark')}else if(t==='light'){document.documentElement.classList.remove('dark')}}catch(_e){}`}
+        </Script>
+      </head>
       <body className="min-h-full">
         <Providers>{children}</Providers>
       </body>

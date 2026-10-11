@@ -13,14 +13,16 @@ import {
 } from "@/components/ui/select";
 import type { CategoryLevel } from "@/lib/types";
 
-/** Kelas romawi per jenjang: SD I–VI, SMP I–III, SMA I–III. */
+/** Kelas romawi per jenjang: SD I–VI, SMP/MTs/SMA/MA I–III. */
 const KELAS_BY_JENJANG: Record<CategoryLevel, string[]> = {
   SD: ["I", "II", "III", "IV", "V", "VI"],
   SMP: ["I", "II", "III"],
+  MTs: ["I", "II", "III"],
   SMA: ["I", "II", "III"],
+  MA: ["I", "II", "III"],
 };
 
-const JENJANG_OPTIONS: CategoryLevel[] = ["SD", "SMP", "SMA"];
+const JENJANG_OPTIONS: CategoryLevel[] = ["SD", "SMP", "MTs", "SMA", "MA"];
 
 export default function CategoriesPage() {
   const { categories, products, addCategory, updateCategory, deleteCategory } = useStore();
@@ -50,12 +52,21 @@ export default function CategoriesPage() {
     setName(""); setDesc(""); setJenjang(""); setKelas(""); setEditId(null); setShowForm(false); setError("");
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!name.trim()) { setError("Nama kategori wajib diisi"); return; }
+    const normalizedName = name.trim().toLocaleLowerCase("id-ID");
+    if (categories.some((category) => category.id !== editId &&
+      category.name.trim().toLocaleLowerCase("id-ID") === normalizedName &&
+      (category.level ?? "") === levelValue)) {
+      setError("Kategori dengan nama dan jenjang/kelas tersebut sudah ada");
+      return;
+    }
     if (editId) {
-      updateCategory(editId, name.trim(), desc.trim(), levelValue);
+      const saved = await updateCategory(editId, name.trim(), desc.trim(), levelValue);
+      if (!saved) { setError("Kategori gagal disimpan. Periksa koneksi dan coba lagi."); return; }
     } else {
-      addCategory(name.trim(), desc.trim(), levelValue);
+      const created = await addCategory(name.trim(), desc.trim(), levelValue);
+      if (!created) { setError("Kategori gagal disimpan. Periksa koneksi dan coba lagi."); return; }
     }
     resetForm();
   };
@@ -78,28 +89,26 @@ export default function CategoriesPage() {
     setDeleteTarget({ id, name: c?.name ?? "", used });
   };
 
-  // Buat sekaligus semua kategori kelas SD I–VI, SMP I–III, SMA I–III untuk
+  // Buat sekaligus semua kategori kelas SD I–VI, SMP/MTs/SMA/MA I–III untuk
   // nama yang sedang diisi (tanpa duplikat dengan yang sudah ada).
-  const handleAddAllClasses = () => {
+  const handleAddAllClasses = async () => {
     if (!name.trim()) { setError("Nama kategori wajib diisi untuk menambah semua kelas"); return; }
     const target = name.trim();
-    let added = 0;
+    const pending: string[] = [];
+    let skipped = 0;
     for (const j of JENJANG_OPTIONS) {
       for (const k of KELAS_BY_JENJANG[j]) {
         const level = `${j} ${k}`;
-        const exists = categories.some((c) => c.name === target && c.level === level);
-        if (!exists) {
-          addCategory(target, desc.trim(), level);
-          added++;
-        }
+        const exists = categories.some((c) => c.name.trim().toLocaleLowerCase("id-ID") === target.toLocaleLowerCase("id-ID") && c.level === level);
+        if (exists) skipped++;
+        else pending.push(level);
       }
     }
+    const results = await Promise.allSettled(pending.map((level) => addCategory(target, desc.trim(), level)));
+    const added = results.filter((result) => result.status === "fulfilled" && Boolean(result.value)).length;
+    const failed = results.length - added;
     resetForm();
-    setAddAllInfo(
-      added > 0
-        ? `Berhasil menambah ${added} kategori kelas untuk "${target}" (SD I–VI, SMP I–III, SMA I–III).`
-        : `Semua kategori kelas untuk "${target}" sudah ada.`
-    );
+    setAddAllInfo(`Hasil untuk "${target}": ${added} berhasil ditambahkan, ${skipped} sudah ada, ${failed} gagal.${failed ? " Periksa pesan kesalahan lalu coba lagi untuk kelas yang belum tersimpan." : ""}`);
   };
 
   return (
@@ -142,7 +151,7 @@ export default function CategoriesPage() {
                 <input value={name} onChange={(e) => { setName(e.target.value); setError(""); }} className="h-8 w-full rounded-lg border border-border bg-background px-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring" />
                 {!error && (
                   <p className="mt-1 text-[11px] text-muted-foreground">
-                    Mata pelajaran saja — kelas dipilih di samping. cth: nama "Matematika" + jenjang SMA + kelas I = rak Matematika Kelas X.
+                    Mata pelajaran saja — kelas dipilih di samping. Contoh: nama Matematika, jenjang SMA, kelas I = rak Matematika Kelas X.
                   </p>
                 )}
                 {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
@@ -159,7 +168,7 @@ export default function CategoriesPage() {
                     <SelectTrigger placeholder="Pilih jenjang" className="w-full" />
                     <SelectContent>
                       {JENJANG_OPTIONS.map((j, i) => (
-                        <SelectItem key={j} index={i} value={j}>{j}</SelectItem>
+                  <SelectItem key={j} index={i} value={j}>{j}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -183,7 +192,7 @@ export default function CategoriesPage() {
               </div>
               {!editId && (
                 <button onClick={handleAddAllClasses} className="w-full rounded-lg border border-dashed border-border px-3 py-2 text-[13px] font-medium text-muted-foreground hover:border-foreground hover:text-foreground">
-                  + Tambah Semua Kelas <span className="text-[11px] font-normal">(SD I–VI · SMP I–III · SMA I–III)</span>
+                  + Tambah Semua Kelas <span className="text-[11px] font-normal">(SD I–VI · SMP/MTs/SMA/MA I–III)</span>
                 </button>
               )}
               <div className="flex justify-end gap-2">
