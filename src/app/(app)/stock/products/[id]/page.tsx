@@ -1,16 +1,17 @@
-"use client";
+import { useParams } from "@/lib/navigation";
 
-import { useState, use, useEffect, useRef } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "@/lib/navigation";
 import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
 import { businessDate } from "@/lib/business-date";
 import { allocateOrderItemNet, isRecognizedSale } from "@/lib/sales-report";
 import { PageHeader } from "@/components/page-header";
 import { CategoryName, categoryText } from "@/components/category-label";
-import { ProductImageUpload } from "@/components/product-image-upload";
-import { ArrowLeft, Plus, Trash2, Save, Banknote, History, TrendingUp } from "lucide-react";
-import Link from "next/link";
+import { Metrics } from "@/components/workspace";
+import { ProductImageUpload, productImageUrl } from "@/components/product-image-upload";
+import { ArrowLeft, Plus, Trash2, Save, Banknote, History, ImageIcon } from "lucide-react";
+import { Link } from "@/lib/navigation";
 import {
   Select,
   SelectTrigger,
@@ -18,8 +19,8 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 
-export default function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function ProductDetailPage() {
+  const { id } = useParams();
   const { products, categories, movements, orders, loading, updateProduct, adjustStock } = useStore();
   const searchParams = useSearchParams();
   const product = products.find((p) => p.id === id);
@@ -82,7 +83,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
   }
   if (!product) {
     return (
-      <div className="p-4 lg:p-6">
+      <div className="workspace-page">
         <p className="text-muted-foreground">Produk tidak ditemukan.</p>
         <Link href="/stock/products" className="mt-2 text-[13px] text-foreground underline">Kembali ke daftar</Link>
       </div>
@@ -129,7 +130,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
   const movTypeLabel: Record<string, string> = { INITIAL: "Stok Awal", SALE: "Penjualan", ADJUSTMENT: "Penyesuaian", RETURN: "Retur", CANCELLED_ORDER: "Pembatalan" };
 
   return (
-    <div className="p-4 lg:p-6">
+    <div className="workspace-page">
       <div className="mb-4">
         <Link href="/stock/products" className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground">
           <ArrowLeft size={14} /> Kembali
@@ -140,31 +141,31 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
         description={`${product.barcode ? `Barcode: ${product.barcode} · ` : "Tanpa barcode · "}${categoryText(category)} · ${product.semester}`}
         actions={
           !editing ? (
-            <button onClick={() => setEditing(true)} className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04]">Edit</button>
+            <button onClick={() => setEditing(true)} className="workspace-button">Edit</button>
           ) : (
             <div className="flex gap-2">
-              <button onClick={() => { setEditing(false); setName(product.name); setCategoryId(product.categoryId); setBarcode(product.barcode); setDescription(product.description); setPublishedYear(product.publishedYear); setSemester(product.semester); setCostPrice(product.costPrice); setImagePath(product.imagePath ?? ""); setPrices(product.prices); }} className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04]">Batal</button>
-              <button onClick={handleSave} disabled={saving} className="flex items-center gap-1 rounded-lg bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:opacity-90 disabled:opacity-50"><Save size={14} /> {saving ? "Menyimpan…" : "Simpan"}</button>
+              <button onClick={() => { setEditing(false); setName(product.name); setCategoryId(product.categoryId); setBarcode(product.barcode); setDescription(product.description); setPublishedYear(product.publishedYear); setSemester(product.semester); setCostPrice(product.costPrice); setImagePath(product.imagePath ?? ""); setPrices(product.prices); }} className="workspace-button">Batal</button>
+              <button onClick={handleSave} disabled={saving} className="workspace-button workspace-button-primary"><Save size={14} /> {saving ? "Menyimpan…" : "Simpan"}</button>
             </div>
           )
         }
       />
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_320px]">
+      <div className="product-detail-layout">
         {/* Details */}
-        <div className="rounded-xl border border-border bg-background p-4">
-          <div className="mb-3">
-            <label className="mb-1 block text-[12px] font-medium text-foreground">Gambar Sampul</label>
-            <ProductImageUpload value={editing ? (imagePath || undefined) : (product.imagePath || undefined)} onChange={setImagePath} />
+        <div className="workspace-panel product-information p-5">
+          <h2 className="mb-5 font-serif text-2xl">Informasi buku</h2>
+          <div className="mb-6">
+            {editing ? <ProductImageUpload value={imagePath||undefined} onChange={setImagePath} /> : <div className="flex flex-wrap items-start gap-5"><div className="flex h-48 w-36 shrink-0 items-center justify-center rounded-lg border border-border bg-muted p-3">{product.imagePath ? <img src={productImageUrl(product.imagePath)??undefined} alt={"Sampul "+product.name} className="h-full w-full object-contain" /> : <div className="text-center text-muted-foreground"><ImageIcon className="mx-auto mb-2" size={28} /><span className="text-xs">Belum ada sampul</span></div>}</div><div className="min-w-0 flex-1"><p className="text-xs text-muted-foreground">Harga utama</p><p className="mt-2 font-serif text-3xl">{formatRupiah(product.prices.find(p=>p.isDefault)?.price??0)}</p><p className="mt-4 text-xs text-muted-foreground">{product.stock} buku tersedia</p></div></div>}
           </div>
           {editing ? (
             <div className="flex flex-col gap-3">
               {saveError && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-[12px] text-destructive">{saveError}</p>}
               <label className="text-[12px] font-medium text-foreground">Nama Produk</label>
-              <input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+              <input aria-label="Nama produk" value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
               <label className="text-[12px] font-medium text-foreground">Kategori</label>
               <Select value={categoryId} onValueChange={setCategoryId}>
-                <SelectTrigger className="w-full" placeholder="Pilih kategori" />
+                <SelectTrigger aria-label="Kategori produk" className="w-full" placeholder="Pilih kategori" />
                 <SelectContent>
                   {categories.map((c, i) => (
                     <SelectItem key={c.id} index={i} value={c.id}><CategoryName c={c} /></SelectItem>
@@ -173,6 +174,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
               </Select>
               <label className="text-[12px] font-medium text-foreground">Barcode (opsional)</label>
               <input
+                aria-label="Barcode produk"
                 value={barcode}
                 onChange={(e) => setBarcode(e.target.value)}
                 placeholder="Boleh dikosongkan"
@@ -181,12 +183,12 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                 className={inputClass}
               />
               <label className="text-[12px] font-medium text-foreground">Deskripsi</label>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className={inputClass} />
+              <textarea aria-label="Deskripsi produk" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className={inputClass} />
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="text-[12px] font-medium text-foreground">Tahun</label><input type="number" value={publishedYear} onChange={(e) => setPublishedYear(parseInt(e.target.value) || 0)} className={inputClass} /></div>
+                <div><label className="text-[12px] font-medium text-foreground">Tahun</label><input aria-label="Tahun terbit" type="number" value={publishedYear} onChange={(e) => setPublishedYear(parseInt(e.target.value) || 0)} className={inputClass} /></div>
                 <div><label className="text-[12px] font-medium text-foreground">Semester</label>
                   <Select value={semester} onValueChange={(v) => setSemester(v as "Ganjil" | "Genap")}>
-                    <SelectTrigger className="w-full" />
+                    <SelectTrigger aria-label="Semester" className="w-full" />
                     <SelectContent>
                       <SelectItem index={0} value="Ganjil">Ganjil</SelectItem>
                       <SelectItem index={1} value="Genap">Genap</SelectItem>
@@ -197,9 +199,9 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="flex items-center gap-1 text-[12px] font-medium text-foreground"><Banknote size={12} /> Harga Awal (Modal)</label>
-                  <input type="number" value={costPrice || ""} onChange={(e) => setCostPrice(parseInt(e.target.value) || 0)} min={0} className={inputClass} />
+                  <input aria-label="Modal per buku" type="number" value={costPrice || ""} onChange={(e) => setCostPrice(parseInt(e.target.value) || 0)} min={0} className={inputClass} />
                 </div>
-                <div><label className="text-[12px] font-medium text-foreground">Stok</label><input type="number" value={product.stock} readOnly className={inputClass + " opacity-60"} /></div>
+                <div><label className="text-[12px] font-medium text-foreground">Stok</label><input aria-label="Stok saat ini" type="number" value={product.stock} readOnly className={inputClass + " opacity-60"} /></div>
               </div>
             </div>
           ) : (
@@ -227,7 +229,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
         </div>
 
         {/* Pricing */}
-        <div className="rounded-xl border border-border bg-background p-4">
+        <div className="workspace-panel product-pricing p-5">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-[13px] font-semibold text-foreground">Harga</h3>
             {editing && (
@@ -236,13 +238,13 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
           </div>
           <div className="flex flex-col gap-1.5">
             {prices.map((p, i) => (
-              <div key={p.id} className="flex items-center gap-2">
+              <div key={p.id} className="flex flex-wrap items-center gap-2">
                 {editing ? (
                   <>
-                    <input value={p.tierName} onChange={(e) => updateTier(i, { tierName: e.target.value })} className="h-7 w-24 rounded border border-border bg-background px-2 text-[12px] focus:outline-none focus:ring-1 focus:ring-ring" />
-                    <input type="number" value={p.price || ""} onChange={(e) => updateTier(i, { price: parseInt(e.target.value) || 0 })} className="h-7 w-24 rounded border border-border bg-background px-2 text-[12px] focus:outline-none focus:ring-1 focus:ring-ring" />
-                    <button onClick={() => setDefault(i)} className={`rounded px-1.5 py-0.5 text-[10px] ${p.isDefault ? "bg-foreground text-background" : "border border-border text-muted-foreground"}`}>D</button>
-                    <button onClick={() => removeTier(i)} className="text-muted-foreground hover:text-destructive"><Trash2 size={12} /></button>
+                    <input aria-label={"Nama harga " + (i+1)} value={p.tierName} onChange={(e) => updateTier(i, { tierName: e.target.value })} className="h-7 w-24 rounded border border-border bg-background px-2 text-[12px] focus:outline-none focus:ring-1 focus:ring-ring" />
+                    <input aria-label={"Nilai harga " + (i+1)} type="number" value={p.price || ""} onChange={(e) => updateTier(i, { price: parseInt(e.target.value) || 0 })} className="h-7 w-24 rounded border border-border bg-background px-2 text-[12px] focus:outline-none focus:ring-1 focus:ring-ring" />
+                    <button aria-label={"Jadikan harga utama " + p.tierName} aria-pressed={p.isDefault} onClick={() => setDefault(i)} className={`rounded px-1.5 py-0.5 text-[10px] ${p.isDefault ? "bg-foreground text-background" : "border border-border text-muted-foreground"}`}>Utama</button>
+                    <button aria-label={"Hapus harga " + p.tierName} onClick={() => removeTier(i)} className="text-muted-foreground hover:text-destructive"><Trash2 size={12} /></button>
                   </>
                 ) : (
                   <div className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 hover:bg-foreground/[0.03]">
@@ -256,39 +258,21 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
         </div>
 
         {/* Stock Adjustment */}
-        <div className="rounded-xl border border-border bg-background p-4">
+        <div className="workspace-panel product-adjustment p-5">
           <h3 className="mb-2 text-[13px] font-semibold text-foreground">Penyesuaian Stok</h3>
-          <div className="flex gap-2">
-            <input type="number" value={adjQty || ""} onChange={(e) => setAdjQty(parseInt(e.target.value) || 0)} placeholder="+/- Qty" className="h-8 w-24 rounded-lg border border-border bg-background px-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring" />
-            <input value={adjRef} onChange={(e) => setAdjRef(e.target.value)} placeholder="Catatan" className="h-8 flex-1 rounded-lg border border-border bg-background px-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring" />
-            <button onClick={handleAdjust} className="rounded-lg bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:opacity-90">OK</button>
+          <p className="mb-4 text-xs leading-relaxed text-muted-foreground">Gunakan angka positif untuk menambah dan negatif untuk mengurangi stok. Sertakan alasan perubahan.</p>
+          <div className="flex flex-wrap gap-2">
+            <input aria-label="Jumlah penyesuaian stok" type="number" value={adjQty || ""} onChange={(e) => setAdjQty(parseInt(e.target.value) || 0)} placeholder="+/- Qty" className="h-8 w-24 rounded-lg border border-border bg-background px-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring" />
+            <input aria-label="Catatan penyesuaian" value={adjRef} onChange={(e) => setAdjRef(e.target.value)} placeholder="Catatan" className="h-8 min-w-0 flex-1 rounded-lg border border-border bg-background px-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring" />
+            <button onClick={handleAdjust} className="rounded-lg bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:opacity-90">Terapkan</button>
           </div>
           {adjustError && <p role="alert" className="mt-2 text-[12px] text-destructive">{adjustError}</p>}
         </div>
 
         {/* Riwayat Penjualan & Laba — terlihat laba per buku + dropdown riwayat */}
-        <div className="rounded-xl border border-border bg-background p-4 lg:col-span-2">
+        <div className="workspace-panel p-5 md:col-span-2">
           <h3 className="mb-3 flex items-center gap-1.5 text-[13px] font-semibold text-foreground"><History size={14}/> Riwayat Penjualan & Laba</h3>
-          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <div className="rounded-lg border border-border bg-muted/20 p-2.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Terjual</div>
-              <div className="text-[14px] font-bold text-foreground">{salesStats.terjual} pcs</div>
-              <div className="text-[11px] text-muted-foreground">{salesStats.count} transaksi</div>
-            </div>
-            <div className="rounded-lg border border-border bg-muted/20 p-2.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Omzet bersih</div>
-              <div className="text-[13px] font-semibold text-foreground">{formatRupiah(salesStats.omzet)}</div>
-            </div>
-            <div className="rounded-lg border border-border bg-muted/20 p-2.5">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Modal terpakai</div>
-              <div className="text-[13px] font-medium text-muted-foreground">{formatRupiah(salesStats.modal)}</div>
-            </div>
-            <div className={`rounded-lg border p-2.5 ${salesStats.laba>=0 ? "border-emerald-500/20 bg-emerald-500/10" : "border-destructive/20 bg-destructive/10"}`}>
-              <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide opacity-70"><TrendingUp size={10}/> Laba total</div>
-              <div className={`text-[13px] font-bold ${salesStats.laba>=0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>{formatRupiah(salesStats.laba)}</div>
-              <div className="text-[11px] opacity-70">{salesStats.omzet>0 ? Math.round(salesStats.laba/salesStats.omzet*100):0}% margin</div>
-            </div>
-          </div>
+          <Metrics items={[{label:"Buku terjual",value:salesStats.terjual},{label:"Omzet bersih",value:formatRupiah(salesStats.omzet)},{label:"Modal terpakai",value:formatRupiah(salesStats.modal)},{label:"Laba penjualan",value:formatRupiah(salesStats.laba),tone:"accent"}]} />
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-[12px]">
               <thead>
@@ -333,7 +317,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
         </div>
 
         {/* Stock Movements */}
-        <div className="rounded-xl border border-border bg-background p-4 lg:col-span-2">
+        <div className="workspace-panel p-5 md:col-span-2">
           <h3 className="mb-2 text-[13px] font-semibold text-foreground">Riwayat Stok</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-[12px]">
@@ -371,9 +355,9 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-baseline justify-between">
+    <div className="grid gap-2 border-b border-border py-3 sm:grid-cols-[150px_minmax(0,1fr)]">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium text-foreground">{value}</span>
+      <span className="whitespace-pre-wrap break-words font-medium leading-relaxed text-foreground">{value || "Belum diisi"}</span>
     </div>
   );
 }

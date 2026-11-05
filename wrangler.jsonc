@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tokobuku-alfan-media",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-11-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": "./dist/client", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
+  "d1_databases": [{ "binding": "DB", "database_name": "tokobuku-production", "database_id": "c66abd92-8c73-4430-83f9-dbab8c6858d5", "migrations_dir": "cloudflare/migrations" }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "tokobuku-files" }],
+  "observability": { "enabled": true }
+}

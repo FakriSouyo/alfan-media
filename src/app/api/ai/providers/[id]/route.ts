@@ -1,4 +1,4 @@
-import type { NextRequest } from "next/server";
+import type { RouteContext } from "@/lib/route-context";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { maskApiKey, requireAdmin, validateProviderInput } from "@/lib/agent/ai-config";
 import type { AiProviderRow } from "@/lib/agent/llm/types";
@@ -27,8 +27,8 @@ async function hasEnabledColumn(supabase: SupabaseClient): Promise<boolean> {
 }
 
 export async function PUT(
-  req: NextRequest,
-  ctx: RouteContext<"/api/ai/providers/[id]">,
+  req: Request,
+  ctx: RouteContext,
 ) {
   const { id } = await ctx.params;
   if (!isUuid(id)) return Response.json({ error: "ID tidak valid." }, { status: 400 });
@@ -103,8 +103,8 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _req: NextRequest,
-  ctx: RouteContext<"/api/ai/providers/[id]">,
+  _req: Request,
+  ctx: RouteContext,
 ) {
   const { id } = await ctx.params;
   if (!isUuid(id)) return Response.json({ error: "ID tidak valid." }, { status: 400 });

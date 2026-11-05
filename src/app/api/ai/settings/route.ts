@@ -1,4 +1,3 @@
-import type { NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/agent/ai-config";
 import type { AiProviderRow, AiSettingsRow } from "@/lib/agent/llm/types";
 
@@ -39,7 +38,7 @@ export async function GET() {
   });
 }
 
-export async function PUT(req: NextRequest) {
+export async function PUT(req: Request) {
   const auth = await requireAdmin();
   if (!auth.ok) return Response.json({ error: auth.message }, { status: auth.status });
 

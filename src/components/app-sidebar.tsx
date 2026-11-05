@@ -1,9 +1,8 @@
-"use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import Image from "next/image";
-import { usePathname, useRouter } from "next/navigation";
+import { Link } from "@/lib/navigation";
+import { Image } from "@/lib/navigation";
+import { usePathname, useRouter } from "@/lib/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useTheme } from "@/lib/theme-context";
 import {
@@ -13,18 +12,9 @@ import {
   SidebarContent,
   SidebarHeader,
   SidebarFooter,
-  SidebarGroup,
-  SidebarGroupLabel,
-  SidebarGroupContent,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
-  SidebarMenuAction,
-  SidebarMenuSub,
-  SidebarMenuSubItem,
-  SidebarMenuSubButton,
   SidebarTrigger,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   DropdownMenu,
@@ -37,219 +27,192 @@ import { MenuItem } from "@/components/ui/menu-item";
 import {
   LayoutDashboard,
   Package,
-  ShoppingCart,
+  PackagePlus,
+  Tags,
+  ReceiptText,
   BarChart3,
+  Boxes,
   Settings,
   LogOut,
   Sun,
   Moon,
   ChevronRight,
+  ChevronsUpDown,
   CircleUserRound,
   Sparkles,
   Plus,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store-context";
 
-type NavChild = { label: string; href: string };
-type NavItem = {
+type NavLinkItem = {
   label: string;
   href: string;
-  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
-  children?: NavChild[];
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string; "aria-hidden"?: boolean }>;
+  /** Defaults to an exact match on `href`. */
+  match?: (pathname: string) => boolean;
+  badge?: "lowStock" | "activeOrders";
 };
+type NavSection = { label: string; items: NavLinkItem[] };
 
-const nav: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+const NEW_SALE_HREF = "/sales/new";
+
+const sections: NavSection[] = [
   {
-    label: "Produk",
-    href: "/stock/products",
-    icon: Package,
-    children: [
-      { label: "Daftar Produk", href: "/stock/products" },
-      { label: "Tambah Produk", href: "/stock/products/new" },
-      { label: "Kategori", href: "/stock/categories" },
-    ],
+    label: "Ringkasan",
+    items: [{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }],
   },
   {
     label: "Penjualan",
-    href: "/sales",
-    icon: ShoppingCart,
-    children: [
-      { label: "Penjualan Baru", href: "/sales/new" },
-      { label: "Pesanan", href: "/sales/orders" },
+    items: [
+      { label: "Pesanan", href: "/sales/orders", icon: ReceiptText, match: (p) => p.startsWith("/sales/orders"), badge: "activeOrders" },
+    ],
+  },
+  {
+    label: "Katalog",
+    items: [
+      {
+        label: "Produk",
+        href: "/stock/products",
+        icon: Package,
+        match: (p) => p === "/stock/products" || (p.startsWith("/stock/products/") && p !== "/stock/products/new"),
+        badge: "lowStock",
+      },
+      { label: "Tambah produk", href: "/stock/products/new", icon: PackagePlus },
+      { label: "Kategori", href: "/stock/categories", icon: Tags },
     ],
   },
   {
     label: "Laporan",
-    href: "/reports",
-    icon: BarChart3,
-    children: [
-      { label: "Penjualan", href: "/reports/sales" },
-      { label: "Inventaris", href: "/reports/inventory" },
+    items: [
+      { label: "Penjualan", href: "/reports/sales", icon: BarChart3 },
+      { label: "Inventaris", href: "/reports/inventory", icon: Boxes },
     ],
+  },
+  {
+    label: "Bantuan kerja",
+    items: [{ label: "Asisten AI", href: "/agent", icon: Sparkles }],
   },
 ];
 
-function isParentActive(pathname: string, item: NavItem) {
-  return pathname === item.href || pathname.startsWith(`${item.href}/`);
-}
+const isActive = (pathname: string, item: NavLinkItem) => (item.match ? item.match(pathname) : pathname === item.href);
 
 function activePage(pathname: string) {
-  for (const item of nav) {
-    const child = item.children?.find((entry) => pathname === entry.href);
-    if (child) return { section: item.label, label: child.label };
-    if (isParentActive(pathname, item)) return { section: item.label, label: item.label };
+  if (pathname === NEW_SALE_HREF) return { section: "Penjualan", label: "Penjualan baru" };
+  for (const section of sections) {
+    const item = section.items.find((entry) => isActive(pathname, entry));
+    if (item) return { section: section.label, label: item.label };
   }
-  if (pathname === "/agent") return { section: "Asisten", label: "Asisten AI" };
   if (pathname === "/profile") return { section: "Akun", label: "Profil" };
   if (pathname === "/settings") return { section: "Akun", label: "Pengaturan" };
-  return { section: "Workspace", label: "Halaman" };
+  return { section: "Alfan Media", label: "Halaman" };
+}
+
+/** Link that also closes the mobile drawer once a destination is chosen. */
+function SidebarLink({ className, onClick, ...props }: React.ComponentProps<typeof Link>) {
+  const { isMobile, setOpenMobile } = useSidebar();
+  return (
+    <Link
+      {...props}
+      className={className}
+      onClick={(event) => {
+        onClick?.(event);
+        if (isMobile) setOpenMobile(false);
+      }}
+    />
+  );
 }
 
 export function AppSidebarLayout({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(true);
-  const [openParents, setOpenParents] = useState<Record<string, boolean>>({
-    Produk: true,
-    Penjualan: true,
-    Laporan: true,
-  });
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
-  const { error: storeError, loading: storeLoading, refresh } = useStore();
+  const { products, orders, error: storeError, loading: storeLoading, refresh } = useStore();
   const { theme, toggleTheme } = useTheme();
   const page = useMemo(() => activePage(pathname), [pathname]);
 
-  const toggleParent = (label: string) =>
-    setOpenParents((state) => ({ ...state, [label]: !state[label] }));
+  const badges = useMemo(() => ({
+    lowStock: products.filter((product) => product.stock <= 5).length,
+    activeOrders: orders.filter((order) => !order.archived && (order.status === "DRAFT" || order.status === "CHECKED_OUT")).length,
+  }), [products, orders]);
+  const badgeLabel = { lowStock: "judul stok menipis", activeOrders: "pesanan belum selesai" } as const;
 
   return (
     <SidebarProvider open={open} onOpenChange={setOpen}>
       <Sidebar variant="inset" side="left" collapsible="offcanvas">
-        <SidebarHeader className="gap-3 p-3">
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton size="lg" className="h-auto min-h-12 px-2 py-2 hover:bg-transparent">
-                {/* The mark ships in two cuts — the dark-mode artwork uses
-                    brighter blues and is meant for the dark sidebar surface. */}
-                <Image
-                  src={theme === "dark" ? "/brand/mark-dark.webp" : "/brand/mark-light.webp"}
-                  alt="Logo Alfan Media"
-                  width={128}
-                  height={61}
-                  sizes="48px"
-                  loading="eager"
-                  className="h-5 w-auto shrink-0 object-contain"
-                />
-                <span className="flex min-w-0 flex-col text-left">
-                  <span className="truncate text-[14px] font-semibold text-foreground">Alfan Media</span>
-                  <span className="truncate text-[11px] text-muted-foreground">Operasional toko buku</span>
-                </span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
+        <SidebarHeader className="app-brand">
+          <SidebarLink href="/dashboard" className="app-brand-link" aria-label="Alfan Media, buka dashboard">
+            <span className="app-brand-mark">
+              {/* The mark ships in two cuts — the dark-mode artwork uses
+                  brighter blues and is meant for the dark sidebar surface. */}
+              <Image
+                src={theme === "dark" ? "/brand/mark-dark.webp" : "/brand/mark-light.webp"}
+                alt=""
+                width={128}
+                height={61}
+                sizes="48px"
+                loading="eager"
+                className="h-4 w-auto object-contain"
+              />
+            </span>
+            <span className="flex min-w-0 flex-col">
+              <span className="app-brand-name">Alfan Media</span>
+              <span className="app-brand-sub">Operasional toko buku</span>
+            </span>
+          </SidebarLink>
 
-          <Link
-            href="/sales/new"
-            className="flex h-9 items-center justify-center gap-1.5 rounded-lg bg-foreground px-3 text-[12px] font-semibold text-background shadow-sm transition-opacity hover:opacity-85"
+          <SidebarLink
+            href={NEW_SALE_HREF}
+            aria-current={pathname === NEW_SALE_HREF ? "page" : undefined}
+            className="app-new-sale"
           >
-            <Plus size={14} /> Penjualan baru
-          </Link>
+            <span>Penjualan baru</span>
+            <span className="app-new-sale-icon" aria-hidden="true"><Plus size={15} strokeWidth={2.4} /></span>
+          </SidebarLink>
         </SidebarHeader>
 
         <SidebarContent>
-          <SidebarGroup defaultOpen>
-            <SidebarGroupLabel className="px-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              Menu utama
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {nav.map((item) => {
-                  const hasChildren = Boolean(item.children);
-                  const openState = openParents[item.label] ?? false;
-                  const active = isParentActive(pathname, item);
-                  return (
-                    <SidebarMenuItem key={item.label}>
-                      <SidebarMenuButton
-                        asChild={!hasChildren}
-                        icon={item.icon}
-                        isActive={active}
-                        onClick={hasChildren ? () => toggleParent(item.label) : undefined}
-                      >
-                        {hasChildren ? (
-                          <span className="flex-1 text-left">{item.label}</span>
-                        ) : (
-                          <Link href={item.href}>
-                            <span>{item.label}</span>
-                          </Link>
-                        )}
-                      </SidebarMenuButton>
-
-                      {hasChildren && (
-                        <>
-                          <SidebarMenuAction
-                            onClick={() => toggleParent(item.label)}
-                            aria-expanded={openState}
-                            className="text-muted-foreground"
-                          >
-                            <ChevronRight
-                              size={14}
-                              className={cn("transition-transform duration-150", openState && "rotate-90")}
-                            />
-                            <span className="sr-only">
-                              {openState ? "Tutup" : "Buka"} {item.label}
+          <nav aria-label="Navigasi utama" className="app-nav">
+            {sections.map((section) => (
+              <div key={section.label} className="app-nav-section">
+                <p className="app-nav-label" aria-hidden="true">{section.label}</p>
+                <ul aria-label={section.label}>
+                  {section.items.map((item) => {
+                    const Icon = item.icon;
+                    const active = isActive(pathname, item);
+                    const count = item.badge ? badges[item.badge] : 0;
+                    return (
+                      <li key={item.href}>
+                        <SidebarLink href={item.href} aria-current={active ? "page" : undefined} className="app-nav-link">
+                          <Icon size={17} strokeWidth={1.8} aria-hidden />
+                          <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                          {item.badge && count > 0 && (
+                            <span className={item.badge === "lowStock" ? "app-nav-badge app-nav-badge-warning" : "app-nav-badge"}>
+                              {count}
+                              <span className="sr-only"> {badgeLabel[item.badge]}</span>
                             </span>
-                          </SidebarMenuAction>
-                          <SidebarMenuSub open={openState}>
-                            {item.children?.map((child) => (
-                              <SidebarMenuSubItem key={child.href}>
-                                <SidebarMenuSubButton asChild isActive={pathname === child.href}>
-                                  <Link href={child.href}>
-                                    <span>{child.label}</span>
-                                  </Link>
-                                </SidebarMenuSubButton>
-                              </SidebarMenuSubItem>
-                            ))}
-                          </SidebarMenuSub>
-                        </>
-                      )}
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-
-          <SidebarGroup className="mt-auto">
-            <SidebarGroupLabel className="px-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              Bantuan kerja
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild icon={Sparkles} isActive={pathname === "/agent"}>
-                    <Link href="/agent"><span>Asisten AI</span></Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+                          )}
+                        </SidebarLink>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </nav>
         </SidebarContent>
 
-        <SidebarFooter className="p-3">
+        <SidebarFooter className="app-sidebar-footer">
           <DropdownMenu>
             <DropdownTrigger
               render={
-                <button className="flex w-full items-center gap-2 rounded-xl border border-border/70 bg-background/70 p-2 text-left outline-none transition-colors hover:bg-hover focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#737373)] [&[data-state=open]]:bg-active">
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground text-[11px] font-semibold text-background">
-                    {user?.name?.charAt(0) ?? "A"}
-                  </span>
+                <button type="button" className="app-user" aria-label={`Menu akun ${user?.name ?? ""}`}>
+                  <span className="app-user-avatar" aria-hidden="true">{user?.name?.charAt(0) ?? "A"}</span>
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-[12px] font-semibold text-foreground">{user?.name}</span>
-                    <span className="truncate text-[10px] text-muted-foreground">{user?.role === "admin" ? "Administrator" : "Staff"}</span>
+                    <span className="truncate text-[13px] font-semibold text-foreground">{user?.name}</span>
+                    <span className="truncate text-[11px] text-muted-foreground">{user?.role === "admin" ? "Administrator" : "Staf toko"}</span>
                   </span>
-                  <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
+                  <ChevronsUpDown size={15} className="shrink-0 text-muted-foreground" aria-hidden="true" />
                 </button>
               }
               className="w-full"
@@ -278,22 +241,23 @@ export function AppSidebarLayout({ children }: { children: React.ReactNode }) {
       </Sidebar>
 
       <SidebarInset>
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border/80 bg-background/85 px-3 backdrop-blur-xl sm:px-5 lg:px-7">
-          <div className="flex min-w-0 items-center gap-3">
-            <SidebarTrigger className="size-8 rounded-lg border border-border/70 bg-card text-muted-foreground hover:bg-hover hover:text-foreground" />
-            <div className="hidden min-w-0 items-center gap-2 text-[12px] sm:flex">
-              <span className="text-muted-foreground">{page.section}</span>
-              <ChevronRight size={13} className="shrink-0 text-muted-foreground/60" />
-              <span className="truncate font-medium text-foreground">{page.label}</span>
-            </div>
+        <header className="app-topbar">
+          <div className="flex min-w-0 items-center gap-2">
+            <SidebarTrigger className="app-topbar-button" />
+            <span className="app-topbar-divider" aria-hidden="true" />
+            <nav aria-label="Lokasi halaman" className="flex min-w-0 items-center gap-2 text-sm">
+              <span className="hidden text-muted-foreground sm:inline">{page.section}</span>
+              <ChevronRight size={13} className="hidden shrink-0 text-muted-foreground sm:block" aria-hidden="true" />
+              <span aria-current="page" className="truncate font-medium text-foreground">{page.label}</span>
+            </nav>
           </div>
           <button
             type="button"
             onClick={toggleTheme}
             aria-label={theme === "dark" ? "Gunakan mode terang" : "Gunakan mode gelap"}
-            className="flex size-8 items-center justify-center rounded-lg border border-border/70 bg-card text-muted-foreground transition-colors hover:bg-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#737373)]"
+            className="app-topbar-button"
           >
-            {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
         </header>
         <div className="app-page flex-1">

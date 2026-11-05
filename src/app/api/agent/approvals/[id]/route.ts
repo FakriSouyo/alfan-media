@@ -1,4 +1,4 @@
-import type { NextRequest } from "next/server";
+import type { RouteContext } from "@/lib/route-context";
 import { runApprovalDecision } from "@/lib/agent/approval-decision";
 import { sseResponse } from "@/lib/agent/sse";
 import { requireAgentUser } from "@/lib/agent/supabase";
@@ -8,8 +8,8 @@ import type { AgentEvent } from "@/lib/agent/types";
 export const runtime = "nodejs";
 
 export async function POST(
-  req: NextRequest,
-  ctx: RouteContext<"/api/agent/approvals/[id]">,
+  req: Request,
+  ctx: RouteContext,
 ) {
   const { id } = await ctx.params;
   if (!isUuid(id)) {

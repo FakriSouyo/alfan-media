@@ -126,7 +126,7 @@ export function AiSettingsCard({ isAdmin }: { isAdmin: boolean }) {
 
   if (!isAdmin) {
     return (
-      <div className="rounded-xl border border-border bg-background p-4">
+      <div className="ai-settings min-w-0">
         <h3 className="mb-1 flex items-center gap-1.5 text-[14px] font-semibold text-foreground">
           <Sparkles size={14} className="text-primary" /> AI Assistant
         </h3>
@@ -367,8 +367,8 @@ export function AiSettingsCard({ isAdmin }: { isAdmin: boolean }) {
   };
 
   return (
-    <div className="rounded-xl border border-border bg-background p-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
+    <div className="ai-settings min-w-0">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-1.5 text-[14px] font-semibold text-foreground">
           <Sparkles size={14} className="text-primary" /> AI Assistant
         </h3>
@@ -380,11 +380,7 @@ export function AiSettingsCard({ isAdmin }: { isAdmin: boolean }) {
         </button>
       </div>
 
-      <p className="mb-3 text-[12px] leading-relaxed text-muted-foreground">
-        AI agent di halaman <span className="font-medium">AI Assistant</span> memakai model
-        eksternal (OpenAI-compatible) melalui gateway yang Anda atur di sini. API key
-        tersimpan di server dan hanya admin yang dapat mengaksesnya.
-      </p>
+      <p className="mb-5 text-xs leading-relaxed text-muted-foreground">Pilih provider dan model untuk asisten toko. Kunci API tersimpan di server.</p>
 
       {loading ? (
         <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
@@ -397,7 +393,7 @@ export function AiSettingsCard({ isAdmin }: { isAdmin: boolean }) {
       ) : null}
 
       {/* Active model */}
-      <div className="mb-3 rounded-lg border border-border/60 bg-foreground/[0.02] p-3">
+      <div className="mb-5 border-l-2 border-primary bg-primary/5 px-4 py-3">
         <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Model Aktif
         </div>
@@ -419,16 +415,16 @@ export function AiSettingsCard({ isAdmin }: { isAdmin: boolean }) {
 
       {/* Providers list */}
       {providers.length > 0 && (
-        <div className="space-y-2">
+        <div className="divide-y divide-border border-y border-border">
           {providers.map((p) => {
             const isActive = active?.provider.id === p.id;
             const modelOptions = p.models.map((m) => m.id);
             return (
               <div
                 key={p.id}
-                className="rounded-lg border border-border/60 p-3 transition-colors hover:border-border"
+                className="min-w-0 py-5"
               >
-                <div className="flex items-start justify-between gap-2">
+                <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 text-[13px]">
                       <span className="truncate font-medium text-foreground">
@@ -452,7 +448,7 @@ export function AiSettingsCard({ isAdmin }: { isAdmin: boolean }) {
                       {p.models.length} model terdaftar
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1">
                     <button
                       onClick={() => void runConnectionTest(p)}
                       title="Tes koneksi: panggil {base_url}/models dengan API key tersimpan"

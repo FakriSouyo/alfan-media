@@ -1,4 +1,3 @@
-import type { NextRequest } from "next/server";
 import { maskApiKey, requireAdmin, validateProviderInput } from "@/lib/agent/ai-config";
 import type { AiProviderRow } from "@/lib/agent/llm/types";
 
@@ -21,7 +20,7 @@ export async function GET() {
   return Response.json({ providers: (data ?? []).map(maskRow) });
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   const auth = await requireAdmin();
   if (!auth.ok) return Response.json({ error: auth.message }, { status: auth.status });
 

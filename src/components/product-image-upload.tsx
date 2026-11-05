@@ -1,4 +1,3 @@
-"use client";
 
 import { useRef, useState, useCallback } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -120,7 +119,6 @@ export function ProductImageUpload({
       >
         <div className="relative flex aspect-[2/3] w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-background">
         {publicUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
           <img src={publicUrl} alt="Sampul produk" className="h-full w-full object-contain" />
         ) : (
           <ImagePlus size={22} className="text-muted-foreground/50" />

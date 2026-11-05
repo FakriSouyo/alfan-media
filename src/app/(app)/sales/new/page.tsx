@@ -1,11 +1,11 @@
-"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { PanelHeading, EmptyPanel } from "@/components/workspace";
+import { Link, useRouter } from "@/lib/navigation";
 import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
 import { PageHeader } from "@/components/page-header";
-import { CategoryName } from "@/components/category-label";
+import { CategoryName, categoryText } from "@/components/category-label";
 import { BarcodeScanPanel, ScanStatusDot } from "@/components/barcode-scan-panel";
 import type { ScanStatus } from "@/hooks/use-barcode-scanner";
 import { Search, Plus, Minus, Trash2, ShoppingCart, UserRound, Truck, ScanBarcode, ImageIcon } from "lucide-react";
@@ -38,6 +38,7 @@ interface CartItem {
 export default function NewSalePage() {
   const router = useRouter();
   const { products, categories, addOrder } = useStore();
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderDiscount, setOrderDiscount] = useState(0);
@@ -98,8 +99,8 @@ export default function NewSalePage() {
   const productsByBarcode = useMemo(() => new Map(products.filter((product) => product.barcode.trim()).map((product) => [product.barcode.trim().toLowerCase(), product])), [products]);
   const filteredProducts = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return products.filter((p) => !query || p.name.toLowerCase().includes(query) || p.barcode.trim().toLowerCase().includes(query));
-  }, [products, search]);
+    return products.filter((p) => (categoryFilter === "all" || p.categoryId === categoryFilter) && (!query || p.name.toLowerCase().includes(query) || p.barcode.trim().toLowerCase().includes(query)));
+  }, [products, search, categoryFilter]);
 
   // Penjualan walk-in (pelanggan langsung): harga item default tier "Normal"
   // (atau harga default produk). Tier tetap bisa diubah per baris di keranjang.
@@ -270,12 +271,12 @@ export default function NewSalePage() {
   };
 
   return (
-    <div className="p-4 lg:p-6">
-      <PageHeader title="Penjualan Baru" description="Tambah produk ke keranjang dan checkout." />
+    <div className="workspace-page">
+      <PageHeader title="Meja kasir" description="Pilih buku, atur jumlah, lalu proses pesanan." actions={<div className="flex flex-wrap gap-2"><Link href="/sales/orders" className="workspace-button">Daftar pesanan</Link><a href="#cart" className="workspace-button xl:hidden"><ShoppingCart size={16} />Keranjang ({cart.reduce((sum,item)=>sum+item.quantity,0)})</a></div>} />
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_340px]">
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.7fr)]">
         {/* Left: Search + Product list */}
-        <div className="flex flex-col gap-3">
+        <div className="flex min-w-0 flex-col gap-3">
           {/* Mode scan berkelanjutan — toggle dari tombol di keranjang */}
           {scanMode && (
             <div ref={scanPanelRef} className="scroll-mt-4">
@@ -295,67 +296,30 @@ export default function NewSalePage() {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
+              aria-label="Cari produk atau barcode"
               placeholder="Cari produk atau scan barcode (Enter)…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={onSearchKeyDown}
-              className="h-9 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="h-11 w-full rounded-lg border border-border bg-card pr-3 pl-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
-          {/* Product list — always shows available books; search narrows it */}
-          <div className="rounded-xl border border-border bg-background">
-            <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-              <span className="text-[13px] font-semibold text-foreground">Produk</span>
-              <span className="text-[11px] text-muted-foreground">{filteredProducts.length} item</span>
-            </div>
-            {filteredProducts.length === 0 ? (
-              <div className="px-3 py-8 text-center text-[13px] text-muted-foreground">Tidak ada produk</div>
-            ) : (
-              <div className="max-h-[50vh] overflow-y-auto sm:max-h-[400px]">
-                {filteredProducts.map((p) => {
-                  const cat = categoriesById.get(p.categoryId);
-                  const thumb = productImageUrl(p.imagePath);
-                  return (
-                    <button
-                      key={p.id}
-                      onClick={() => addToCart(p.id)}
-                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] hover:bg-foreground/[0.03] first:rounded-t-xl last:rounded-b-xl disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
-                      disabled={p.stock <= 0}
-                    >
-                      <div className="flex aspect-[2/3] w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted/30">
-                        {thumb ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={thumb} alt={p.name} loading="lazy" decoding="async" className="h-full w-full object-contain" />
-                        ) : (
-                          <ImageIcon size={16} className="text-muted-foreground/40" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-medium text-foreground">{p.name}</div>
-                        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                          {cat ? (
-                            <CategoryName c={cat} className="truncate" badgeClassName="bg-foreground/[0.07] text-[10px]" />
-                          ) : (
-                            <span className="truncate font-mono">{p.barcode || "Tanpa barcode"}</span>
-                          )}
-                          <span className="shrink-0">· Stok: {p.stock}</span>
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <div className="font-medium text-foreground">{formatRupiah(getPrice(p, priceTier))}</div>
-                        {p.stock <= 0 && <div className="text-[11px] text-destructive">Habis</div>}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <select aria-label="Kategori buku kasir" value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)} className="h-11 w-full rounded-lg border border-input bg-card px-3 text-sm"><option value="all">Semua kategori</option>{categories.map(c=><option key={c.id} value={c.id}>{categoryText(c)}</option>)}</select>
+          <section className="workspace-panel"><PanelHeading title="Pilih buku" description={filteredProducts.length+" judul dalam katalog"} />
+            {filteredProducts.length===0 ? <EmptyPanel title="Buku tidak ditemukan" description="Cari judul lain atau pilih semua kategori."><button className="workspace-button" onClick={()=>{setSearch("");setCategoryFilter("all");}}>Reset pencarian</button></EmptyPanel> : <div className="pos-books">{filteredProducts.map(p=>{
+              const thumb=productImageUrl(p.imagePath); const cat=categoriesById.get(p.categoryId);
+              return <button key={p.id} aria-label={"Tambah "+p.name+" ke keranjang"} onClick={()=>addToCart(p.id)} disabled={p.stock<=0} className="pos-book">
+                <div className="pos-book-cover">{thumb?<img src={thumb} alt="" loading="lazy" decoding="async" />:<ImageIcon size={25} className="text-muted-foreground" />}</div>
+                <span className="line-clamp-2 text-[13px] font-semibold leading-relaxed">{p.name}</span><span className="text-[11px] text-muted-foreground">{categoryText(cat)}</span>
+                <span className="mt-auto flex w-full flex-wrap items-center justify-between gap-2"><span className="text-sm font-semibold">{formatRupiah(getPrice(p,priceTier))}</span><span className={"text-[11px] "+(p.stock<=5?"text-destructive":"text-muted-foreground")}>{p.stock<=0?"Habis":"Stok "+p.stock}</span></span>
+              </button>;
+            })}</div>}
+          </section>
         </div>
 
         {/* Right: Cart */}
-        <div className="rounded-xl border border-border bg-background">
+        <div id="cart" className="workspace-panel pos-cart scroll-mt-20">
           <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
             <ShoppingCart size={14} className="text-muted-foreground" />
             <span className="text-[13px] font-semibold text-foreground">Keranjang</span>
@@ -379,9 +343,10 @@ export default function NewSalePage() {
               <UserRound size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
+                aria-label="Nama pelanggan"
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Nama pelanggan (opsional) — default Pelanggan"
+                placeholder="Nama pelanggan (opsional)"
                 className="h-8 w-full rounded-lg border border-border bg-background pl-7 pr-3 text-[12px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </div>
@@ -409,12 +374,11 @@ export default function NewSalePage() {
                   const discAmt = Math.round(base * item.discountPercent / 100);
                   const isDisc = item.discountPercent > 0;
                   return (
-                  <div key={idx} className="rounded-xl border border-border bg-card p-3 shadow-sm">
+                  <div key={idx} className="border-b border-border p-3">
                     {/* baris 1: gambar + nama + hapus */}
                     <div className="flex gap-2.5">
                       <div className="flex aspect-[2/3] w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-muted/30">
                         {thumb ? (
-                          // eslint-disable-next-line @next/next/no-img-element
                           <img src={thumb} alt={item.productName} loading="lazy" decoding="async" className="h-full w-full object-contain" />
                         ) : (
                           <ImageIcon size={15} className="text-muted-foreground/40" />
@@ -432,15 +396,16 @@ export default function NewSalePage() {
                           {itemProduct && <span className="text-muted-foreground/60">· stok {itemProduct.stock}</span>}
                         </div>
                       </div>
-                      <button onClick={() => removeFromCart(idx)} title="Hapus" className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 size={14} /></button>
+                      <button aria-label={"Hapus " + item.productName + " dari keranjang"} onClick={() => removeFromCart(idx)} title="Hapus" className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 size={14} /></button>
                     </div>
 
                     {/* baris 2: qty + diskon buku */}
-                    <div className="mt-3 grid grid-cols-[auto_1fr] gap-2">
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
                       <div className="flex items-center gap-0.5 rounded-lg border border-border p-0.5">
-                        <button onClick={() => updateCart(idx, { quantity: Math.max(1, item.quantity - 1) })} className="flex size-7 items-center justify-center rounded-md hover:bg-foreground/[0.06] text-foreground"><Minus size={13} /></button>
+                        <button aria-label={"Kurangi jumlah " + item.productName} onClick={() => updateCart(idx, { quantity: Math.max(1, item.quantity - 1) })} className="flex size-11 items-center justify-center rounded-md hover:bg-foreground/[0.06] text-foreground"><Minus size={13} /></button>
                         <span className="w-9 text-center text-[13px] font-semibold text-foreground">{item.quantity}</span>
                         <button
+                          aria-label={"Tambah jumlah " + item.productName}
                           onClick={() => updateCart(idx, { quantity: item.quantity + 1 })}
                           disabled={item.quantity >= (itemProduct?.stock ?? 0)}
                           title={item.quantity >= (itemProduct?.stock ?? 0) ? `Stok maksimal ${itemProduct?.stock ?? 0}` : undefined}
@@ -452,6 +417,7 @@ export default function NewSalePage() {
                         <div className="ml-auto flex items-center gap-1">
                           <input
                             type="number"
+                            aria-label={"Diskon " + item.productName}
                             value={item.discountPercent || ""}
                             placeholder="0"
                             onChange={(e) => updateCart(idx, { discountPercent: Math.max(0, Math.min(100, parseInt(e.target.value) || 0)) })}
@@ -500,7 +466,7 @@ export default function NewSalePage() {
 
           {/* Ringkasan — dipisah jelas jadi 2 kelompok diskon */}
           <div className="border-t border-border bg-muted/20 px-3 py-3">
-            <div className="rounded-xl border border-border bg-background p-3">
+            <div className="p-1">
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Ringkasan Biaya</div>
               <div className="space-y-1.5 text-[13px]">
                 <div className="flex justify-between">
@@ -525,6 +491,7 @@ export default function NewSalePage() {
                     <div className="flex items-center gap-1">
                       <input
                         type="number"
+                        aria-label="Diskon pesanan dalam persen"
                         value={orderDiscount || ""}
                         placeholder="0"
                         onChange={(e) => setOrderDiscount(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
@@ -548,7 +515,7 @@ export default function NewSalePage() {
                 )}
                 <div className="flex items-center justify-between border-t border-border pt-2">
                   <span className="text-[13px] font-semibold text-foreground">Total Bayar</span>
-                  <span className="text-[18px] font-bold tracking-tight text-foreground">{formatRupiah(total)}</span>
+                  <span className="font-serif text-3xl tracking-tight text-foreground">{formatRupiah(total)}</span>
                 </div>
               </div>
             </div>
@@ -561,10 +528,10 @@ export default function NewSalePage() {
           {/* Actions */}
           <div className="flex flex-col gap-2 border-t border-border p-3">
             <div className="flex gap-2">
-              <button onClick={handleSaveDraft} disabled={cart.length === 0} className="flex-1 rounded-lg border border-border py-2 text-[13px] text-foreground hover:bg-foreground/[0.04] disabled:opacity-40">
+              <button onClick={handleSaveDraft} disabled={cart.length === 0} className="workspace-button flex-1">
                 Simpan Draft
               </button>
-              <button onClick={handleCheckout} disabled={cart.length === 0} className="flex-1 rounded-lg bg-foreground py-2 text-[13px] font-medium text-background hover:opacity-90 disabled:opacity-40">
+              <button onClick={handleCheckout} disabled={cart.length === 0} className="workspace-button workspace-button-primary flex-1">
                 Checkout
               </button>
             </div>

@@ -1,89 +1,38 @@
-# alfan-media
+# Alfan Media
 
-POS toko buku Alfan Media — Next.js (App Router) + Supabase (Postgres + RLS):
-inventori berbasis ledger stok, penjualan/POS (anti-oversell, scan barcode,
-surat jalan), laporan penjualan, dan AI Assistant dengan tool calling.
+POS toko buku: inventori dengan ledger stok, penjualan, barcode, surat jalan, nota thermal, laporan, dan AI assistant.
 
-## Getting Started
+Stack: **React 19 + Vite + React Router + Hono + Cloudflare Workers + D1 + R2 + Better Auth**.
 
-First, run the development server:
+Aplikasi: [Alfan Media di Cloudflare](https://tokobuku-alfan-media.freebuff-app.workers.dev).
 
-```bash
+Gunakan Node.js 24 dan npm. `package-lock.json` menjadi lockfile utama.
+
+```powershell
+npm install
+node scripts/setup-local.mjs
+npm run db:migrate:local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Buka http://localhost:3000. Database lokal terpisah dari produksi; impor data dan aktivasi akun lokal mengikuti [panduan migrasi](MIGRATION.md).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Testing
-
-Test suite (Vitest + Testing Library) menutupi alur utama store setelah migrasi Supabase:
-
-```bash
-npm test          # jalankan semua test sekali
-npm run test:watch
+```powershell
+npm run typecheck
+npm run lint
+npm test
+npm run build
 ```
 
-File test:
+Untuk Cloudflare:
 
-- `src/lib/__tests__/store-context.test.tsx` — seluruh flow `StoreProvider`:
-  pemetaan data awal, kategori (termasuk label kelas bebas `"SD I"` — bug
-  enum `category_level` pasca-migrasi), produk (+ movement `INITIAL` untuk
-  stok awal), pelanggan, invoice (RPC `next_invoice_no` + fallback), order +
-  item + surat jalan, transisi status (`SALE`/`RETURN` movement), penyesuaian
-  stok, serta **guard skema DB** (mock menolak enum/uuid/date/int/CHECK yang
-  tak valid, persis seperti Postgres).
-- `src/lib/__tests__/currency.test.ts` — format mata uang.
-- `src/lib/__tests__/surat-jalan.test.ts` / `nota-thermal.test.ts` — generator
-  dokumen (surat jalan & nota thermal).
-
-Mock DB in-memory: `src/lib/__tests__/mocks/mock-supabase.ts` — test jalan
-tanpa koneksi jaringan/env Supabase, dan memvalidasi skema
-(`supabase/migration/*.sql`) agar nilai yang dikirim UI tidak menyimpang dari
-DB. Jika skema berubah, sesuaikan konstanta `ENUM_COLUMNS`/`UUID_COLUMNS`/
-`DATE_COLUMNS`/`INT_COLUMNS` di file mock.
-
-Migrasi skema: file di `supabase/migration/` dijalankan berurutan (001 → 012)
-di Supabase SQL Editor. Yang terbaru: `012_profit_and_image.sql` (menambah
-`products.cost_price` untuk laba, `products.image_path` untuk gambar sampul lewat
-bucket `product-images`, dan snapshot `order_items.cost_price` agar laba memakai
-modal saat barang terjual), serta `007_category_level_to_text.sql` (mengubah
-`categories.level` dari enum 3 nilai menjadi text agar label `"SD I"`..`"SMA III"`
-bisa tersimpan).
-
-Alamat toko dipakai sebagai kop surat & nota terpusat di `src/lib/surat-jalan.ts`
-(`STORE_ADDRESS`): Jl. Pattimura No.46A, Selong, Lombok Timur, NTB.
-
-Catatan lingkungan tertentu (sandbox yang memblokir `child_process.spawn`):
-jika Vitest gagal dengan `spawn EPERM`, jalankan dengan preload workaround:
-
-```bash
-node --import ./scripts/vitest-preload.mjs node_modules/vitest/vitest.mjs run
+```powershell
+npm run cf:login
+npm run deploy
 ```
 
-dan `npm run build` perlu `experimental.useTypeScriptCli: false` di
-`next.config.ts` agar type-check tidak menspawn proses `tsc` terpisah.
+Konfigurasi binding berada di `wrangler.jsonc`. Secret autentikasi produksi berada di Cloudflare Workers; konfigurasi lokal ada di `.dev.vars` yang diabaikan Git.
 
-## Learn More
+[Dokumentasi migrasi, aktivasi akun, verifikasi data, pengujian transaksi, dan prosedur rollback](MIGRATION.md).
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Data produksi telah disalin dari Supabase ke D1 dan R2. Sumber Supabase tetap dipertahankan sebagai cadangan. Gunakan satu aplikasi untuk menulis transaksi saat cutover. Direktori `migration-data/` memuat backup privat dan tidak boleh dikomit atau dipublikasikan.
