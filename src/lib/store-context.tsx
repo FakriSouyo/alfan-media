@@ -1,4 +1,3 @@
-"use client";
 
 import {
   createContext,
@@ -255,7 +254,7 @@ interface StoreValue {
 
 const StoreContext = createContext<StoreValue | null>(null);
 
-export function StoreProvider({ children }: { children: ReactNode }) {
+export function StoreProvider({ children, enabled = true }: { children: ReactNode; enabled?: boolean }) {
   const supabase = getSupabaseBrowserClient();
   const { user, loading: authLoading } = useAuth();
   const authUserId = user?.id ?? null;
@@ -297,6 +296,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     const PAGE_SIZE = 1000;
@@ -315,15 +319,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
 
     try {
+      const snapshotClient = supabase as typeof supabase & { snapshot?: () => Promise<Record<string, Record<string, unknown>[]>> };
+      const snapshot = snapshotClient.snapshot ? await snapshotClient.snapshot() : null;
+      const read = (table: Parameters<typeof fetchAll>[0], column: string, ascending = true) => snapshot ? Promise.resolve(snapshot[table]) : fetchAll(table, column, ascending);
       const [catRows, productRows, priceRows, customerRows, orderRows, itemRows, movementRows, suratJalanRows] = await Promise.all([
-        fetchAll("categories", "name"),
-        fetchAll("products", "name"),
-        fetchAll("product_prices", "id"),
-        fetchAll("customers", "name"),
-        fetchAll("orders", "order_date", false),
-        fetchAll("order_items", "id"),
-        fetchAll("stock_movements", "created_at", false),
-        fetchAll("surat_jalans", "id"),
+        read("categories", "name"),
+        read("products", "name"),
+        read("product_prices", "id"),
+        read("customers", "name"),
+        read("orders", "order_date", false),
+        read("order_items", "id"),
+        read("stock_movements", "created_at", false),
+        read("surat_jalans", "id"),
       ]);
       if (requestVersion !== refreshVersionRef.current || currentUserIdRef.current !== userId) return;
 
@@ -359,7 +366,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } finally {
       if (requestVersion === refreshVersionRef.current && currentUserIdRef.current === userId) setLoading(false);
     }
-  }, [authLoading, authUserId, clearProtectedData, supabase]);
+  }, [authLoading, authUserId, clearProtectedData, supabase, enabled]);
 
   useEffect(() => {
     currentUserIdRef.current = authUserId;

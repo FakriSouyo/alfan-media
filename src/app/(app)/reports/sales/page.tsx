@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store-context";
 import { formatRupiah, formatNumber } from "@/lib/currency";
 import { PageHeader } from "@/components/page-header";
+import { Metrics, ReportNav, PanelHeading } from "@/components/workspace";
 import { Download, ChevronDown, ChevronRight } from "lucide-react";
 import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
 import { businessDate, businessMonth, formatSalesPeriod, resolveSalesPeriod, type SalesPeriod } from "@/lib/business-date";
@@ -16,6 +17,7 @@ function amount(value: number) {
 export default function SalesReportPage() {
   const { orders, loading } = useStore();
   const [period, setPeriod] = useState<SalesPeriod>(() => ({ mode: "daily", date: businessDate() }));
+  const [view, setView] = useState("invoices");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [bookSearch, setBookSearch] = useState("");
 
@@ -98,21 +100,22 @@ export default function SalesReportPage() {
   };
 
   return (
-    <div className="p-4 lg:p-6">
+    <div className="workspace-page">
       <PageHeader
         title="Laporan Penjualan"
         description="Ringkasan transaksi dan produk terjual pada periode yang dipilih."
         actions={<div className="flex gap-2">
-          <button onClick={handleExportPDF} disabled={Boolean(range.error) || loading} className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04] disabled:opacity-50"><Download size={14} /> PDF</button>
-          <button onClick={handleExportCsv} disabled={Boolean(range.error) || loading} className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04] disabled:opacity-50"><Download size={14} /> CSV</button>
+          <button onClick={handleExportPDF} disabled={Boolean(range.error) || loading} className="workspace-button disabled:opacity-50"><Download size={14} /> PDF</button>
+          <button onClick={handleExportCsv} disabled={Boolean(range.error) || loading} className="workspace-button disabled:opacity-50"><Download size={14} /> CSV</button>
         </div>}
       />
 
-      <div className="mt-4 flex flex-wrap items-end gap-3">
+      <ReportNav active="sales" />
+      <div className="workspace-panel flex flex-wrap items-end gap-4 p-5">
         <div>
-          <label className="mb-1 block text-[12px] font-medium text-foreground">Periode</label>
+          <span className="mb-1 block text-[12px] font-medium text-foreground">Periode</span>
           <Select value={period.mode} onValueChange={(value) => setMode(value as SalesPeriod["mode"])}>
-            <SelectTrigger className="h-8 w-auto min-w-[150px]" placeholder="Pilih periode" />
+            <SelectTrigger aria-label="Periode laporan" className="h-11 w-auto min-w-[150px]" placeholder="Pilih periode" />
             <SelectContent>
               <SelectItem index={0} value="daily">Harian</SelectItem>
               <SelectItem index={1} value="monthly">Rentang bulanan</SelectItem>
@@ -133,18 +136,16 @@ export default function SalesReportPage() {
       </div>
       {range.error && <p role="alert" className="mt-2 text-[12px] text-destructive">{range.error}</p>}
 
-      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {[
-          { label: "Total Pendapatan", value: amount(report.totalRevenue) },
-          { label: "Transaksi", value: String(report.totalTransactions) },
-          { label: "Item Terjual", value: formatNumber(report.totalItems) },
-          { label: "Total Diskon", value: amount(report.totalDiscount) },
-          { label: "Rata-rata", value: amount(report.averageOrder) },
-        ].map((summary) => <div key={summary.label} className="min-w-0 rounded-xl border border-border bg-background p-3"><div className="truncate text-[11px] text-muted-foreground">{summary.label}</div><div className="mt-1 truncate text-[15px] font-semibold text-foreground">{summary.value}</div></div>)}
-      </div>
-
-      <section className="mt-4 rounded-xl border border-border bg-background">
-        <div className="border-b border-border px-4 py-2.5"><h3 className="text-[13px] font-semibold text-foreground">Detail Penjualan per Invoice</h3></div>
+      <Metrics items={[
+        {label:"Pendapatan bersih",value:amount(report.totalRevenue),tone:"accent"},
+        {label:"Transaksi",value:report.totalTransactions},
+        {label:"Buku terjual",value:formatNumber(report.totalItems)},
+        {label:"Total diskon",value:amount(report.totalDiscount)},
+        {label:"Rata-rata transaksi",value:amount(report.averageOrder)},
+      ]} />
+      <div className="workspace-tabs" role="group" aria-label="Rincian laporan"><button aria-pressed={view==="invoices"} onClick={()=>setView("invoices")}>Per invoice <span className="text-xs text-muted-foreground">{report.invoices.length}</span></button><button aria-pressed={view==="books"} onClick={()=>setView("books")}>Per buku <span className="text-xs text-muted-foreground">{report.books.length}</span></button></div>
+      <section hidden={view!=="invoices"} className="workspace-panel">
+        <PanelHeading title="Rincian invoice" description="Buka baris invoice untuk melihat buku, diskon, dan alokasi pendapatannya." />
         <div className="overflow-x-auto"><table className="w-full text-[13px]"><thead><tr className="border-b border-border text-left text-[12px] text-muted-foreground"><th className="px-3 py-2 font-medium">Invoice</th><th className="hidden px-3 py-2 font-medium md:table-cell">Tanggal</th><th className="hidden px-3 py-2 font-medium md:table-cell">Pelanggan</th><th className="hidden px-3 py-2 text-right font-medium md:table-cell">Items</th><th className="hidden px-3 py-2 text-right font-medium md:table-cell">Diskon</th><th className="px-3 py-2 text-right font-medium">Total</th></tr></thead>
           <tbody>{report.invoices.map(({ order, lines, invoiceDiscount }) => {
             const isOpen = Boolean(expanded[order.id]);
@@ -156,7 +157,7 @@ export default function SalesReportPage() {
           </tbody></table></div>
       </section>
 
-      <section className="mt-4 rounded-xl border border-border bg-background">
+      <section hidden={view!=="books"} className="workspace-panel">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5"><h3 className="text-[13px] font-semibold text-foreground">Rekap Penjualan per Buku</h3><input value={bookSearch} onChange={(e) => setBookSearch(e.target.value)} aria-label="Cari buku dalam rekap" placeholder="Cari buku atau barcode" className="h-8 w-full max-w-xs rounded-lg border border-border bg-background px-3 text-[12px]" /></div>
         <div className="overflow-x-auto"><table className="w-full text-[13px]"><thead><tr className="border-b border-border text-left text-[12px] text-muted-foreground"><th className="px-3 py-2 font-medium">Buku</th><th className="px-3 py-2 font-medium">Barcode / ID</th><th className="px-3 py-2 text-right font-medium">Qty</th><th className="px-3 py-2 text-right font-medium">Transaksi</th><th className="hidden px-3 py-2 text-right font-medium sm:table-cell">Kotor</th><th className="hidden px-3 py-2 text-right font-medium sm:table-cell">Diskon</th><th className="px-3 py-2 text-right font-medium">Bersih</th></tr></thead><tbody>
           {visibleBooks.map((book) => <tr key={book.key} className="border-b border-border/50 last:border-0"><td className="px-3 py-2 font-medium text-foreground">{book.name}</td><td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">{book.barcode || book.productId || "Snapshot historis"}</td><td className="px-3 py-2 text-right">{formatNumber(book.quantity)}</td><td className="px-3 py-2 text-right">{formatNumber(book.transactions)}</td><td className="hidden px-3 py-2 text-right sm:table-cell">{amount(book.gross)}</td><td className="hidden px-3 py-2 text-right sm:table-cell">{amount(book.allocatedDiscount)}</td><td className="px-3 py-2 text-right font-medium">{amount(book.netRevenue)}</td></tr>)}
@@ -164,9 +165,9 @@ export default function SalesReportPage() {
         </tbody></table></div>
       </section>
 
-      <section className="mt-4 rounded-xl border border-border bg-background p-4">
-        <h3 className="mb-2 text-[13px] font-semibold text-foreground">Produk Terlaris</h3>
-        {report.topProducts.length ? report.topProducts.map((book, index) => <div key={book.key} className="flex items-center justify-between gap-3 border-b border-border/50 py-1.5 text-[13px] last:border-0"><span className="text-foreground">{index + 1}. {book.name}</span><span className="text-right text-muted-foreground">{formatNumber(book.quantity)} terjual · <b className="text-foreground">{amount(book.netRevenue)}</b></span></div>) : <p className="text-[12px] text-muted-foreground">Tidak ada produk terjual pada periode ini.</p>}
+      <section className="workspace-panel mt-5 p-5">
+        <h3 className="mb-4 font-serif text-2xl text-foreground">Buku terlaris</h3>
+        {report.topProducts.length ? report.topProducts.map((book, index) => <div key={book.key} className="flex flex-wrap items-center justify-between gap-3 border-b border-border py-4 text-sm last:border-0"><span className="text-foreground">{index + 1}. {book.name}</span><span className="text-right text-muted-foreground">{formatNumber(book.quantity)} terjual · <b className="text-foreground">{amount(book.netRevenue)}</b></span></div>) : <p className="text-[12px] text-muted-foreground">Tidak ada produk terjual pada periode ini.</p>}
       </section>
     </div>
   );
@@ -182,7 +183,7 @@ function InvoiceRows({ order, lines, invoiceDiscount, isOpen, panelId, onToggle 
 }) {
   return <>
     <tr className="border-b border-border/50">
-      <td className="px-3 py-2"><div className="flex items-start gap-2"><button type="button" aria-expanded={isOpen} aria-controls={panelId} aria-label={`${isOpen ? "Tutup" : "Buka"} rincian ${order.id}`} onClick={onToggle} className="mt-0.5 rounded p-0.5 text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button><div><div className="font-medium text-foreground">{order.id}</div><div className="max-w-[220px] truncate text-[11px] text-muted-foreground md:hidden">{order.date} · {order.customerName} · {order.items.length} item</div></div></div></td>
+      <td className="px-3 py-2"><div className="flex items-start gap-2"><button type="button" aria-expanded={isOpen} aria-controls={panelId} aria-label={`${isOpen ? "Tutup" : "Buka"} rincian ${order.id}`} onClick={onToggle} className="workspace-icon">{isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button><div><div className="font-medium text-foreground">{order.id}</div><div className="max-w-[220px] truncate text-[11px] text-muted-foreground md:hidden">{order.date} · {order.customerName} · {order.items.length} item</div></div></div></td>
       <td className="hidden px-3 py-2 text-muted-foreground md:table-cell">{order.date}</td><td className="hidden px-3 py-2 text-foreground md:table-cell">{order.customerName}</td><td className="hidden px-3 py-2 text-right text-muted-foreground md:table-cell">{order.items.reduce((sum, item) => sum + item.quantity, 0)}</td><td className="hidden px-3 py-2 text-right text-muted-foreground md:table-cell">{order.discount ? amount(order.discount) : "-"}</td><td className="px-3 py-2 text-right font-medium text-foreground">{amount(order.total)}</td>
     </tr>
     {isOpen && <tr id={panelId} className="border-b border-border/50 bg-muted/20"><td colSpan={6} className="px-3 py-3"><div className="mb-2 flex flex-wrap justify-between gap-2 text-[12px]"><div><span className="text-muted-foreground">Pelanggan: </span><span className="font-medium text-foreground">{order.customerName}</span><span className="ml-3 text-muted-foreground">Status: {order.status}</span></div><span className="text-muted-foreground">Subtotal {amount(order.subtotal)} · Diskon order {amount(order.discount)}</span></div>

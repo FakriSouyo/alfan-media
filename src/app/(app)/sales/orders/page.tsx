@@ -1,20 +1,14 @@
-"use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { Link } from "@/lib/navigation";
 import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
 import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { Eye, ListFilter, FileText, CheckCircle2, Printer, ShoppingCart, Archive, Trash2 } from "lucide-react";
+import { ArrowUpRight, MoreHorizontal, Plus, FileText, CheckCircle2, Printer, ShoppingCart, Archive, Trash2 } from "lucide-react";
 import { printSuratJalan } from "@/lib/surat-jalan";
 import { printThermalNota } from "@/lib/nota-thermal";
-import {
-  Select,
-  SelectTrigger,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
+import { Metrics, PanelHeading, SearchField, EmptyPanel, OrderStatus } from "@/components/workspace";
 
 export default function OrdersPage() {
   const { orders, completeOrder, checkoutOrder, archiveOrder, deleteOrder } = useStore();
@@ -36,12 +30,6 @@ export default function OrdersPage() {
       return matchSearch && matchStatus;
     });
 
-  const statusColor: Record<string, string> = {
-    COMPLETED: "bg-emerald-500/15 text-emerald-500",
-    CHECKED_OUT: "bg-blue-500/15 text-blue-500",
-    DRAFT: "bg-muted text-muted-foreground",
-    CANCELLED: "bg-destructive/15 text-destructive",
-  };
   const statusLabel: Record<string, string> = {
     COMPLETED: "Selesai",
     CHECKED_OUT: "Diproses",
@@ -50,134 +38,36 @@ export default function OrdersPage() {
   };
 
   return (
-    <div className="p-4 lg:p-6">
-      <PageHeader title="Pesanan" description="Daftar semua pesanan." />
-
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-        <input
-          type="text"
-          placeholder="Cari invoice atau pelanggan..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="h-8 w-full max-w-xs rounded-lg border border-border bg-background px-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        />
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger icon={ListFilter} className="h-8 w-auto min-w-[168px]" placeholder="Semua Status" />
-          <SelectContent>
-            <SelectItem index={0} value="all">Semua Status</SelectItem>
-            <SelectItem index={1} value="COMPLETED">Selesai</SelectItem>
-            <SelectItem index={2} value="CHECKED_OUT">Diproses</SelectItem>
-            <SelectItem index={3} value="DRAFT">Draft</SelectItem>
-            <SelectItem index={4} value="CANCELLED">Dibatalkan</SelectItem>
-          </SelectContent>
-        </Select>
-        <label className="flex h-8 cursor-pointer items-center gap-1.5 self-center text-[13px] text-muted-foreground">
-          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} className="size-3.5 accent-foreground" />
-          Tampilkan arsip
-        </label>
-      </div>
-
-      <div className="mt-3 rounded-xl border border-border bg-background">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-border text-left text-[12px] text-muted-foreground">
-                <th className="px-3 py-2 font-medium">Invoice</th>
-                <th className="px-3 py-2 font-medium hidden md:table-cell">Tanggal</th>
-                <th className="px-3 py-2 font-medium hidden md:table-cell">Pelanggan</th>
-                <th className="px-3 py-2 font-medium text-right hidden md:table-cell">Items</th>
-                <th className="px-3 py-2 font-medium text-right">Total</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium text-right">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((o) => (
-                <tr key={o.id} className="border-b border-border/50 last:border-0 hover:bg-foreground/[0.02]">
-                  <td className="px-3 py-2">
-                    <div className="font-medium text-foreground">{o.id}</div>
-                    <div className="max-w-[160px] truncate text-[11px] text-muted-foreground md:hidden">{o.date} · {o.customerName}</div>
-                  </td>
-                  <td className="px-3 py-2 text-muted-foreground hidden md:table-cell">{o.date}</td>
-                  <td className="px-3 py-2 text-foreground hidden md:table-cell">{o.customerName}</td>
-                  <td className="px-3 py-2 text-right text-muted-foreground hidden md:table-cell">{o.items.length}</td>
-                  <td className="px-3 py-2 text-right font-medium text-foreground">{formatRupiah(o.total)}</td>
-                  <td className="px-3 py-2">
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${statusColor[o.status]}`}>
-                      {statusLabel[o.status]}
-                    </span>
-                    {o.archived && (
-                      <span className="ml-1 inline-block rounded-full bg-foreground/[0.07] px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                        Arsip
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {o.status === "DRAFT" && (
-                        <button
-                          onClick={() => setCheckoutTarget(o.id)}
-                          title="Mulai proses (stok terpotong)"
-                          className="flex items-center gap-1 rounded-md border border-blue-500/30 px-2 py-1 text-[11px] font-medium text-blue-500 hover:bg-blue-500/10"
-                        >
-                          <ShoppingCart size={12} /> <span className="hidden sm:inline">Proses</span>
-                        </button>
-                      )}
-                      {o.status === "CHECKED_OUT" && (
-                        <button
-                          onClick={() => setCompleteTarget(o.id)}
-                          title="Tandai Selesai"
-                          className="flex items-center gap-1 rounded-md border border-emerald-500/30 px-2 py-1 text-[11px] font-medium text-emerald-500 hover:bg-emerald-500/10"
-                        >
-                          <CheckCircle2 size={12} /> <span className="hidden sm:inline">Selesai</span>
-                        </button>
-                      )}
-                      {o.status === "COMPLETED" && !o.archived && (
-                        <button
-                          onClick={() => setArchiveTarget(o.id)}
-                          title="Arsipkan (data tetap utuh)"
-                          className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
-                        >
-                          <Archive size={12} /> <span className="hidden sm:inline">Arsip</span>
-                        </button>
-                      )}
-                      {(o.status === "CHECKED_OUT" || o.status === "COMPLETED") && (
-                        <button
-                          onClick={() => printThermalNota(o)}
-                          title="Cetak Receipt (thermal)"
-                          className="rounded p-1 text-muted-foreground hover:text-foreground"
-                        >
-                          <Printer size={14} />
-                        </button>
-                      )}
-                      {(o.status === "CHECKED_OUT" || o.status === "COMPLETED") && (
-                        <button
-                          onClick={() => printSuratJalan(o)}
-                          title="Lihat Surat Izin Jalan"
-                          className="rounded p-1 text-muted-foreground hover:text-foreground"
-                        >
-                          <FileText size={14} />
-                        </button>
-                      )}
-                      <Link href={`/sales/orders/${o.id}`} title="Detail" className="rounded p-1 text-muted-foreground hover:text-foreground"><Eye size={14} /></Link>
-                      <button
-                        onClick={() => setDeleteTarget(o.id)}
-                        title="Hapus pesanan permanen"
-                        className="rounded p-1 text-muted-foreground hover:text-destructive"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Tidak ada pesanan</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+    <div className="workspace-page">
+      <PageHeader title="Pesanan" description="Pantau pesanan, proses penjualan, dan siapkan pengiriman." actions={<Link href="/sales/new" className="workspace-button workspace-button-primary"><Plus size={16} /> Penjualan baru</Link>} />
+      <Metrics items={[
+        {label:"Pesanan aktif", value:orders.filter(o=>!o.archived && o.status!=="CANCELLED").length,note:"Tidak termasuk arsip",tone:"accent"},
+        {label:"Menunggu proses",value:orders.filter(o=>!o.archived && o.status==="DRAFT").length,note:"Pesanan draft"},
+        {label:"Sedang diproses",value:orders.filter(o=>!o.archived && o.status==="CHECKED_OUT").length,note:"Siap diselesaikan"},
+        {label:"Selesai",value:orders.filter(o=>!o.archived && o.status==="COMPLETED").length,note:"Transaksi final"},
+      ]} />
+      <div className="workspace-tabs" role="group" aria-label="Filter status pesanan">{["all","DRAFT","CHECKED_OUT","COMPLETED","CANCELLED"].map(status=><button key={status} aria-pressed={statusFilter===status} onClick={()=>setStatusFilter(status)}>{status==="all"?"Semua":statusLabel[status]}<span className="rounded bg-muted px-1.5 text-[10px] tabular-nums">{orders.filter(o=>(showArchived||!o.archived)&&(status==="all"||o.status===status)).length}</span></button>)}</div>
+      <section className="workspace-panel !overflow-visible">
+        <PanelHeading title="Daftar pesanan" description={filtered.length + " pesanan ditampilkan"} />
+        <div className="workspace-toolbar"><SearchField label="Cari invoice atau pelanggan" value={search} onChange={e=>setSearch(e.target.value)} /><label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)} className="size-4 accent-primary" />Tampilkan arsip</label></div>
+        <div className="order-row order-row-header" aria-hidden="true"><span>Invoice</span><span className="order-customer">Pelanggan</span><span>Status</span><span>Total pesanan</span><span>Tindakan</span></div>
+        {filtered.map(o=><article key={o.id} className="order-row">
+          <div className="min-w-0"><Link className="break-all font-semibold hover:underline" href={"/sales/orders/"+o.id}>{o.id}</Link><small>{o.date}</small><small className="xl:hidden">{o.customerName}</small></div>
+          <div className="order-customer min-w-0"><p className="break-words">{o.customerName}</p><small>{o.items.reduce((sum,i)=>sum+i.quantity,0)} buku · {o.items.length} judul</small></div>
+          <div><OrderStatus status={o.status} />{o.archived && <small>Diarsipkan</small>}</div>
+          <div className="order-total font-semibold tabular-nums">{formatRupiah(o.total)}</div>
+          <div className="order-controls flex items-center justify-end"><Link aria-label={"Detail " + o.id} title="Buka detail" href={"/sales/orders/"+o.id} className="workspace-icon"><ArrowUpRight size={18} /></Link>
+            <details className="order-actions"><summary aria-label={"Tindakan " + o.id} className="workspace-icon"><MoreHorizontal size={18} /></summary><div className="order-action-menu" onClick={e=>e.currentTarget.closest("details")?.removeAttribute("open")}>
+              {o.status==="DRAFT" && <button onClick={()=>setCheckoutTarget(o.id)}><ShoppingCart size={15} />Proses pesanan</button>}
+              {o.status==="CHECKED_OUT" && <button onClick={()=>setCompleteTarget(o.id)}><CheckCircle2 size={15} />Tandai selesai</button>}
+              {o.status==="COMPLETED" && !o.archived && <button onClick={()=>setArchiveTarget(o.id)}><Archive size={15} />Arsipkan</button>}
+              {(o.status==="CHECKED_OUT" || o.status==="COMPLETED") && <><button onClick={()=>printThermalNota(o)}><Printer size={15} />Cetak nota</button><button onClick={()=>printSuratJalan(o)}><FileText size={15} />Cetak surat jalan</button></>}
+              <button onClick={()=>setDeleteTarget(o.id)} className="text-destructive"><Trash2 size={15} />Hapus pesanan</button>
+            </div></details>
+          </div>
+        </article>)}
+        {!filtered.length && <EmptyPanel title="Belum ada pesanan yang cocok" description="Ubah pencarian atau status untuk melihat pesanan lainnya."><button className="workspace-button" onClick={()=>{setSearch("");setStatusFilter("all");}}>Reset filter</button></EmptyPanel>}
+      </section>
 
       <ConfirmDialog
         open={completeTarget !== null}

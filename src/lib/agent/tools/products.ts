@@ -233,58 +233,25 @@ export async function runCreateProduct(
       return { ok: false, code: "VALIDATION", message: "Kategori produk belum dapat ditentukan." };
     }
 
-    const { data: product, error: productError } = await ctx.supabase
-      .from("products")
-      .insert({
+    const { data: product, error: productError } = await ctx.supabase.rpc("create_product_atomic", {
+      p_product: {
         name: p.name,
         category_id: categoryId,
         barcode: p.barcode,
         description: p.description,
         published_year: p.publishedYear,
         semester: p.semester,
-        stock: 0,
         cost_price: p.costPrice ?? 0,
-      })
-      .select("id, name, category_id, barcode, description, published_year, semester, stock, cost_price, image_path, created_at, updated_at")
-      .single();
+      },
+      p_prices: [{ tier_name: "Normal", price: p.sellingPrice, is_default: true }],
+      p_initial_stock: p.stock,
+    });
     if (productError) {
       if (productError.code === "23505") {
         return { ok: false, code: "CONFLICT", message: "Produk dengan barcode tersebut sudah ada." };
       }
       console.error(formatAgentError(productError, "create_product"));
       return dbError("create_product");
-    }
-
-    const { error: priceError } = await ctx.supabase
-      .from("product_prices")
-      .insert({
-        product_id: product.id,
-        tier_name: "Normal",
-        price: p.sellingPrice,
-        is_default: true,
-      })
-      .select("id, product_id, tier_name, price, is_default, created_at");
-    if (priceError) {
-      // Roll the product back so a failed create never leaves half-state.
-      await ctx.supabase.from("products").delete().eq("id", product.id);
-      console.error(formatAgentError(priceError, "create_product.prices"));
-      return dbError("create_product.prices");
-    }
-
-    if (p.stock > 0) {
-      const { error: moveError } = await ctx.supabase.from("stock_movements").insert({
-        product_id: product.id,
-        type: "INITIAL",
-        quantity: p.stock,
-        reference: `Stok awal — dibuat lewat agent oleh ${ctx.user.id}`,
-        created_by: ctx.user.id,
-      });
-      if (moveError) {
-        await ctx.supabase.from("product_prices").delete().eq("product_id", product.id);
-        await ctx.supabase.from("products").delete().eq("id", product.id);
-        console.error(formatAgentError(moveError, "create_product.movement"));
-        return dbError("create_product.movement");
-      }
     }
 
     const full = (await fetchProductFull(ctx.supabase, product.id))!;

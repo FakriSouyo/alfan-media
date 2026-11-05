@@ -2,16 +2,19 @@
 
 import { useState } from "react";
 import { useStore } from "@/lib/store-context";
-import { PageHeader } from "@/components/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { ChevronRight, Plus, Pencil, Trash2 } from "lucide-react";
+import { Link } from "@/lib/navigation";
+import { PageHeader } from "@/components/page-header";
+import { Metrics, SearchField, EmptyPanel } from "@/components/workspace";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Select,
   SelectTrigger,
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import type { CategoryLevel } from "@/lib/types";
+import type { Category, CategoryLevel } from "@/lib/types";
 
 /** Kelas romawi per jenjang: SD I–VI, SMP/MTs/SMA/MA I–III. */
 const KELAS_BY_JENJANG: Record<CategoryLevel, string[]> = {
@@ -25,8 +28,10 @@ const KELAS_BY_JENJANG: Record<CategoryLevel, string[]> = {
 const JENJANG_OPTIONS: CategoryLevel[] = ["SD", "SMP", "MTs", "SMA", "MA"];
 
 export default function CategoriesPage() {
-  const { categories, products, addCategory, updateCategory, deleteCategory } = useStore();
+  const { categories, products, addCategory, updateCategory, deleteCategory, loading, error: storeError, refresh } = useStore();
   const [search, setSearch] = useState("");
+  const [levelFilter, setLevelFilter] = useState("");
+  const [selectedKey, setSelectedKey] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -41,12 +46,34 @@ export default function CategoriesPage() {
 
   const levelValue = jenjang && kelas ? `${jenjang} ${kelas}` : "";
 
-  const filtered = categories.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.description.toLowerCase().includes(search.toLowerCase()) ||
-      (c.level ?? "").toLowerCase().includes(search.toLowerCase())
-  );
+  const query = search.trim().toLocaleLowerCase("id-ID");
+  const productCounts = new Map<string, number>();
+  for (const product of products) {
+    productCounts.set(product.categoryId, (productCounts.get(product.categoryId) ?? 0) + 1);
+  }
+
+  const groups = new Map<string, Category[]>();
+  for (const category of categories) {
+    const level = category.level?.trim() ?? "";
+    const matchesLevel = !levelFilter || (levelFilter === "general" ? !level : level.split(/\s+/)[0] === levelFilter);
+    const matchesSearch = [category.name, category.description, level].some((value) => value.toLocaleLowerCase("id-ID").includes(query));
+    if (!matchesLevel || !matchesSearch) continue;
+    const key = category.name.trim().toLocaleLowerCase("id-ID");
+    const entries = groups.get(key) ?? [];
+    entries.push(category);
+    groups.set(key, entries);
+  }
+
+  const subjects = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, "id-ID"));
+  const selected = subjects.find(([key]) => key === selectedKey) ?? subjects[0];
+  const variants = (selected?.[1] ?? []).slice().sort((a, b) => (a.level ?? "").localeCompare(b.level ?? "", "id-ID"));
+  const sharedDescription = variants[0]?.description && variants.every((item) => item.description === variants[0].description)
+    ? variants[0].description
+    : "";
+  const subjectTotal = new Set(categories.map((item) => item.name.trim().toLocaleLowerCase("id-ID"))).size;
+  const categorizedCount = products.filter((item) => categories.some((category) => category.id === item.categoryId)).length;
+  const emptyCount = categories.filter((item) => !productCounts.get(item.id)).length;
+  const selectedProductCount = variants.reduce((total, item) => total + (productCounts.get(item.id) ?? 0), 0);
 
   const resetForm = () => {
     setName(""); setDesc(""); setJenjang(""); setKelas(""); setEditId(null); setShowForm(false); setError("");
@@ -86,7 +113,7 @@ export default function CategoriesPage() {
   const handleDelete = (id: string) => {
     const c = categories.find((x) => x.id === id);
     const used = products.some((p) => p.categoryId === id);
-    setDeleteTarget({ id, name: c?.name ?? "", used });
+    setDeleteTarget({ id, name: [c?.name, c?.level].filter(Boolean).join(" · "), used });
   };
 
   // Buat sekaligus semua kategori kelas SD I–VI, SMP/MTs/SMA/MA I–III untuk
@@ -112,141 +139,170 @@ export default function CategoriesPage() {
   };
 
   return (
-    <div className="p-4 lg:p-6">
+    <div className="workspace-page">
       <PageHeader
         title="Kategori"
-        description="Kelola kategori produk buku."
-        actions={
-          <button
-            onClick={() => { resetForm(); setShowForm(true); }}
-            className="flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:opacity-90"
-          >
-            <Plus size={14} /> Tambah Kategori
+        description="Kelompokkan buku per mata pelajaran dan kelas agar rak, katalog, dan laporan tetap rapi."
+        actions={<>
+          <Link href="/stock/products" className="workspace-button">Lihat katalog</Link>
+          <button type="button" onClick={() => { resetForm(); setShowForm(true); }} className="workspace-button workspace-button-primary">
+            <Plus size={16} aria-hidden="true" /> Tambah kategori
           </button>
-        }
+        </>}
       />
 
-      {/* Search */}
-      <div className="mt-4">
-        <input
-          type="text"
-          placeholder="Cari kategori..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="h-8 w-full max-w-xs rounded-lg border border-border bg-background px-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        />
-      </div>
+      <Metrics items={[
+        { label: "Mata pelajaran", value: subjectTotal },
+        { label: "Varian kelas", value: categories.length },
+        { label: "Produk terkategori", value: categorizedCount, note: `dari ${products.length} judul` },
+        { label: "Kategori kosong", value: emptyCount, note: "Belum berisi produk" },
+      ]} />
 
       {/* Form Modal */}
-      {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-background p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-[14px] font-semibold text-foreground">{editId ? "Edit Kategori" : "Tambah Kategori"}</h3>
-              <button onClick={resetForm} className="text-muted-foreground hover:text-foreground"><X size={16} /></button>
+      <Dialog open={showForm} onOpenChange={(open) => { if (!open) resetForm(); }}>
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>{editId ? "Edit kategori" : "Tambah kategori"}</DialogTitle>
+          </DialogHeader>
+          <form className="flex flex-col gap-4" onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }}>
+            <div>
+              <label htmlFor="category-name" className="mb-1.5 block text-xs font-medium text-foreground">Nama kategori</label>
+              <input id="category-name" required value={name} onChange={(e) => { setName(e.target.value); setError(""); }} aria-invalid={Boolean(error)} aria-describedby="category-name-hint" className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+              <p id="category-name-hint" role={error ? "alert" : undefined} className={"mt-1.5 text-xs leading-relaxed " + (error ? "text-destructive" : "text-muted-foreground")}>
+                {error || "Tulis mata pelajarannya saja, lalu pilih kelas. Contoh: Matematika · SMA · Kelas I."}
+              </p>
             </div>
-            <div className="mt-4 flex flex-col gap-3">
-              <div>
-                <label className="mb-1 block text-[12px] font-medium text-foreground">Nama Kategori *</label>
-                <input value={name} onChange={(e) => { setName(e.target.value); setError(""); }} className="h-8 w-full rounded-lg border border-border bg-background px-3 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring" />
-                {!error && (
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Mata pelajaran saja — kelas dipilih di samping. Contoh: nama Matematika, jenjang SMA, kelas I = rak Matematika Kelas X.
-                  </p>
-                )}
-                {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
-              </div>
 
-              {/* Jenjang + Kelas terpisah dari nama */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1 block text-[12px] font-medium text-foreground">Jenjang</label>
-                  <Select
-                    value={jenjang}
-                    onValueChange={(v) => { setJenjang(v as CategoryLevel | ""); setKelas(""); }}
-                  >
-                    <SelectTrigger placeholder="Pilih jenjang" className="w-full" />
-                    <SelectContent>
-                      {JENJANG_OPTIONS.map((j, i) => (
-                  <SelectItem key={j} index={i} value={j}>{j}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-[12px] font-medium text-foreground">Kelas</label>
-                  <Select value={kelas} onValueChange={setKelas}>
-                    <SelectTrigger placeholder={jenjang ? "Pilih kelas" : "Pilih jenjang dulu"} className="w-full" />
-                    <SelectContent>
-                      {(jenjang ? KELAS_BY_JENJANG[jenjang] : []).map((k, i) => (
-                        <SelectItem key={k} index={i} value={k}>{`Kelas ${k}`}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block text-[12px] font-medium text-foreground">Deskripsi</label>
-                <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={2} className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-[13px] focus:outline-none focus:ring-1 focus:ring-ring" />
+                <label className="mb-1.5 block text-xs font-medium text-foreground">Jenjang</label>
+                <Select value={jenjang} onValueChange={(v) => { setJenjang(v as CategoryLevel | ""); setKelas(""); }}>
+                  <SelectTrigger placeholder="Pilih jenjang" className="min-h-11 w-full" />
+                  <SelectContent>
+                    {JENJANG_OPTIONS.map((j, i) => <SelectItem key={j} index={i} value={j}>{j}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-              {!editId && (
-                <button onClick={handleAddAllClasses} className="w-full rounded-lg border border-dashed border-border px-3 py-2 text-[13px] font-medium text-muted-foreground hover:border-foreground hover:text-foreground">
-                  + Tambah Semua Kelas <span className="text-[11px] font-normal">(SD I–VI · SMP/MTs/SMA/MA I–III)</span>
-                </button>
-              )}
-              <div className="flex justify-end gap-2">
-                <button onClick={resetForm} className="rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04]">Batal</button>
-                <button onClick={handleSubmit} className="rounded-lg bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:opacity-90">
-                  {editId ? "Simpan" : "Tambah"}
-                </button>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-foreground">Kelas</label>
+                <Select value={kelas} onValueChange={setKelas}>
+                  <SelectTrigger placeholder={jenjang ? "Pilih kelas" : "Pilih jenjang dulu"} className="min-h-11 w-full" />
+                  <SelectContent>
+                    {(jenjang ? KELAS_BY_JENJANG[jenjang] : []).map((k, i) => <SelectItem key={k} index={i} value={k}>{`Kelas ${k}`}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-          </div>
+
+            <div>
+              <label htmlFor="category-description" className="mb-1.5 block text-xs font-medium text-foreground">Deskripsi <span className="font-normal text-muted-foreground">(opsional)</span></label>
+              <textarea id="category-description" value={desc} onChange={(e) => setDesc(e.target.value)} rows={3} className="py-2 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+            </div>
+            {!editId && (
+              <button type="button" onClick={handleAddAllClasses} className="workspace-button w-full flex-wrap border-dashed text-muted-foreground hover:text-foreground">
+                <Plus size={15} aria-hidden="true" /> Tambah semua kelas
+                <span className="text-xs font-normal">(SD I–VI · SMP/MTs/SMA/MA I–III)</span>
+              </button>
+            )}
+            <div className="flex justify-end gap-2 border-t border-border pt-4">
+              <button type="button" onClick={resetForm} className="workspace-button">Batal</button>
+              <button type="submit" className="workspace-button workspace-button-primary">{editId ? "Simpan perubahan" : "Tambah kategori"}</button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {storeError && (
+        <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-destructive/35 bg-destructive/5 px-4 py-3 text-sm">
+          <span>{storeError}</span>
+          <button type="button" onClick={() => void refresh()} className="workspace-button">Coba lagi</button>
         </div>
       )}
 
-      {/* Table */}
-      <div className="mt-3 rounded-xl border border-border bg-background">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-border text-left text-[12px] text-muted-foreground">
-                <th className="px-4 py-2 font-medium">Nama</th>
-                <th className="px-4 py-2 font-medium">Kelas</th>
-                <th className="px-4 py-2 font-medium hidden md:table-cell">Deskripsi</th>
-                <th className="px-4 py-2 font-medium text-right">Produk</th>
-                <th className="px-4 py-2 font-medium text-right">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((c) => (
-                <tr key={c.id} className="border-b border-border/50 last:border-0 hover:bg-foreground/[0.02]">
-                  <td className="px-4 py-2 font-medium text-foreground">{c.name}</td>
-                  <td className="px-4 py-2">
-                    {c.level ? (
-                      <span className="inline-block rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[11px] font-medium text-foreground">{c.level}</span>
-                    ) : (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-muted-foreground hidden md:table-cell">{c.description || "-"}</td>
-                  <td className="px-4 py-2 text-right text-muted-foreground">{products.filter((p) => p.categoryId === c.id).length}</td>
-                  <td className="px-4 py-2 text-right">
-                    <div className="flex justify-end gap-1">
-                      <button onClick={() => handleEdit(c.id)} className="rounded p-1 text-muted-foreground hover:text-foreground"><Pencil size={14} /></button>
-                      <button onClick={() => handleDelete(c.id)} className="rounded p-1 text-muted-foreground hover:text-destructive"><Trash2 size={14} /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">Tidak ada kategori</td></tr>
-              )}
-            </tbody>
-          </table>
+      <section className="workspace-panel">
+        <div className="workspace-toolbar">
+          <SearchField label="Cari nama, kelas, atau deskripsi" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <select aria-label="Filter jenjang" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}
+            className="h-11 min-w-0 rounded-lg border border-input bg-background px-3 text-sm">
+            <option value="">Semua jenjang</option>
+            {JENJANG_OPTIONS.map((level) => <option key={level} value={level}>{level}</option>)}
+            <option value="general">Tanpa kelas</option>
+          </select>
         </div>
-      </div>
+
+        {selected ? (
+          <div className="category-layout">
+            <label className="category-picker lg:hidden">
+              <span>Mata pelajaran <span className="font-normal text-muted-foreground">· {subjects.length} hasil</span></span>
+              <select value={selected[0]} onChange={(event) => setSelectedKey(event.target.value)}
+                className="mt-2 block h-11 w-full rounded-lg border border-input bg-background px-3">
+                {subjects.map(([key, entries]) => <option key={key} value={key}>{entries[0].name} ({entries.length})</option>)}
+              </select>
+            </label>
+
+            <nav aria-label="Indeks kategori" className="category-index hidden lg:block">
+              <div className="category-index-head"><span>Mata pelajaran</span><span className="tabular-nums">{subjects.length}</span></div>
+              <ul>
+                {subjects.map(([key, entries]) => (
+                  <li key={key}>
+                    <button type="button" aria-pressed={selected[0] === key} onClick={() => setSelectedKey(key)}>
+                      <span className="min-w-0 flex-1 wrap-anywhere">{entries[0].name}</span>
+                      <span className="text-xs tabular-nums text-muted-foreground">{entries.length}</span>
+                      <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-muted-foreground" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+
+            <section aria-labelledby="category-detail-title" className="min-w-0">
+              <header className="category-detail-head">
+                <p>Rincian kategori</p>
+                <h2 id="category-detail-title" className="wrap-anywhere">{selected[1][0].name}</h2>
+                <span className="text-sm text-muted-foreground">{variants.length} varian kelas · {selectedProductCount} produk</span>
+                {sharedDescription && <p className="category-description wrap-anywhere">{sharedDescription}</p>}
+              </header>
+              <ul className="divide-y divide-border">
+                {variants.map((category) => {
+                  const label = category.level?.trim() || "Tanpa kelas";
+                  const count = productCounts.get(category.id) ?? 0;
+                  return (
+                    <li key={category.id} className="category-variant">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <span className="category-level">{label}</span>
+                          <span className={"text-sm tabular-nums " + (count ? "text-foreground" : "text-muted-foreground")}>{count ? `${count} produk` : "Belum ada produk"}</span>
+                        </div>
+                        {!sharedDescription && category.description && (
+                          <details className="mt-2 text-sm text-muted-foreground">
+                            <summary className="w-fit cursor-pointer rounded-sm py-1">Lihat deskripsi</summary>
+                            <p className="mt-1 max-w-[65ch] wrap-anywhere leading-relaxed">{category.description}</p>
+                          </details>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <button type="button" aria-label={`Edit ${category.name} ${label}`} title="Edit kategori" onClick={() => handleEdit(category.id)} className="workspace-icon"><Pencil size={16} aria-hidden="true" /></button>
+                        <button type="button" aria-label={`Hapus ${category.name} ${label}`} title="Hapus kategori" onClick={() => handleDelete(category.id)} className="workspace-icon hover:text-destructive"><Trash2 size={16} aria-hidden="true" /></button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          </div>
+        ) : (
+          <div aria-live="polite">
+            <EmptyPanel
+              title={loading ? "Memuat kategori…" : storeError ? "Kategori belum bisa ditampilkan" : categories.length ? "Kategori tidak ditemukan" : "Belum ada kategori"}
+              description={loading ? "Data toko sedang diambil." : storeError ? "Periksa koneksi lalu coba muat ulang." : categories.length ? "Coba kata kunci lain atau reset filter jenjang." : "Tambahkan mata pelajaran pertama untuk mulai mengelompokkan buku."}
+            >
+              {!loading && !storeError && (search || levelFilter)
+                ? <button type="button" onClick={() => { setSearch(""); setLevelFilter(""); }} className="workspace-button">Reset pencarian dan filter</button>
+                : !loading && !storeError && !categories.length && <button type="button" onClick={() => { resetForm(); setShowForm(true); }} className="workspace-button workspace-button-primary"><Plus size={16} aria-hidden="true" />Tambah kategori</button>}
+            </EmptyPanel>
+          </div>
+        )}
+      </section>
 
       <ConfirmDialog
         open={deleteTarget !== null}

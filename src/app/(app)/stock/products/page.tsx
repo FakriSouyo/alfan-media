@@ -1,14 +1,13 @@
-"use client";
 
-import { Fragment, useMemo, useState } from "react";
-import Link from "next/link";
+import { useMemo, useState } from "react";
+import { Link } from "@/lib/navigation";
 import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
 import { PageHeader } from "@/components/page-header";
 import { CategoryName, categoryText } from "@/components/category-label";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { productImageUrl } from "@/components/product-image-upload";
-import { Plus, Pencil, Trash2, Eye, PackagePlus, Search, ImageIcon, ChevronDown, ChevronUp, TrendingUp, History } from "lucide-react";
+import { Plus, Pencil, Trash2, PackagePlus, Search, ImageIcon, ChevronDown, ChevronUp, History } from "lucide-react";
 import {
   Select,
   SelectTrigger,
@@ -26,11 +25,13 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { allocateOrderItemNet, isRecognizedSale } from "@/lib/sales-report";
+import { Metrics, PanelHeading, SearchField, EmptyPanel } from "@/components/workspace";
 import type { Product } from "@/lib/types";
 
 export default function ProductsPage() {
   const { products, categories, orders, deleteProduct, adjustStock } = useStore();
   const [search, setSearch] = useState("");
+  const [stockFilter, setStockFilter] = useState("all");
   const [catFilter, setCatFilter] = useState("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
@@ -57,8 +58,8 @@ export default function ProductsPage() {
   const filtered = useMemo(() => products.filter((p) => {
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search);
     const matchCat = catFilter === "all" || p.categoryId === catFilter;
-    return matchSearch && matchCat;
-  }), [products, search, catFilter]);
+    return matchSearch && matchCat && (stockFilter === "all" || (stockFilter === "low" ? p.stock > 0 && p.stock <= 5 : p.stock <= 0));
+  }), [products, search, catFilter, stockFilter]);
 
   const getCat = (id: string) => {
     const c = categories.find((x) => x.id === id);
@@ -122,15 +123,15 @@ export default function ProductsPage() {
   };
 
   return (
-    <div className="p-4 lg:p-6">
+    <div className="workspace-page">
       <PageHeader
         title="Produk"
-        description="Kelola data produk buku."
+        description="Rak buku, harga, dan ketersediaan dalam satu tempat."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Dialog open={addStockOpen} onOpenChange={(o) => { setAddStockOpen(o); if (!o) resetStockForm(); }}>
               <DialogTrigger asChild>
-                <button className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[13px] font-medium text-foreground hover:bg-foreground/[0.04]">
+                <button className="workspace-button">
                   <PackagePlus size={14} /> Tambah Stok
                 </button>
               </DialogTrigger>
@@ -219,7 +220,7 @@ export default function ProductsPage() {
 
             <Link
               href="/stock/products/new"
-              className="flex items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-[13px] font-medium text-background hover:opacity-90"
+              className="flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Plus size={14} /> Tambah Produk
             </Link>
@@ -227,197 +228,53 @@ export default function ProductsPage() {
         }
       />
 
-      {/* Filters */}
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-        <input
-          type="text"
-          placeholder="Cari nama atau barcode..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="h-8 w-full max-w-xs rounded-lg border border-border bg-background px-3 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        />
-        <Select value={catFilter} onValueChange={setCatFilter}>
-          <SelectTrigger className="h-8 w-auto min-w-[168px]" placeholder="Semua Kategori" />
-          <SelectContent>
-            <SelectItem index={0} value="all">Semua Kategori</SelectItem>
-            {categories.map((c, i) => (
-              <SelectItem key={c.id} index={i + 1} value={c.id}><CategoryName c={c} /></SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Table */}
-      <div className="mt-3 rounded-xl border border-border bg-background overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-border text-left text-[12px] text-muted-foreground bg-muted/20">
-                <th className="w-8 px-2 py-2"></th>
-                <th className="px-3 py-2 font-medium">Produk</th>
-                <th className="px-3 py-2 font-medium hidden md:table-cell">Kategori</th>
-                <th className="px-3 py-2 font-medium text-right hidden lg:table-cell">Modal</th>
-                <th className="px-3 py-2 font-medium text-right">Harga</th>
-                <th className="px-3 py-2 font-medium text-right">Laba/pcs</th>
-                <th className="px-3 py-2 font-medium text-right">Terjual</th>
-                <th className="px-3 py-2 font-medium text-right">Stok</th>
-                <th className="px-3 py-2 font-medium text-right">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p) => {
-                const thumb = productImageUrl(p.imagePath);
-                const labaPcs = getLabaPerPcs(p);
-                const stats = getSoldStats(p.id);
-                const isExp = expandedId === p.id;
-                const labaColor = labaPcs > 0 ? "text-emerald-600 dark:text-emerald-400" : labaPcs < 0 ? "text-destructive" : "text-muted-foreground";
-                return (
-                // The key belongs on the fragment: it is the element the map
-                // returns, and each entry renders a main row plus an optional
-                // detail row.
-                <Fragment key={p.id}>
-                <tr className={`border-b border-border/50 last:border-0 hover:bg-foreground/[0.02] ${isExp ? "bg-muted/30" : ""}`}>
-                  <td className="px-2 py-2">
-                    <button onClick={()=> setExpandedId(isExp ? null : p.id)} className="flex size-6 items-center justify-center rounded-md border border-border bg-background hover:bg-foreground/[0.06]">
-                      {isExp ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}
-                    </button>
-                  </td>
-                  <td className="px-3 py-2">
-                      <div className="flex items-center gap-2.5">
-                      <button type="button" onClick={() => setDetailProduct(p)} aria-label={`Lihat sampul dan detail ${p.name}`} className="flex aspect-[2/3] w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted/40 focus:outline-none focus:ring-2 focus:ring-ring">
-                        {thumb ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={thumb} alt="" className="h-full w-full object-contain" />
-                        ) : (
-                          <ImageIcon size={16} className="text-muted-foreground/40" />
-                        )}
-                      </button>
-                      <div className="min-w-0">
-                        <button type="button" onClick={() => setDetailProduct(p)} className="text-left font-medium text-foreground leading-tight hover:underline focus:outline-none focus:underline">{p.name}</button>
-                        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                          <span className="md:hidden">{getCat(p.categoryId)}</span>
-                          <span className="hidden md:inline font-mono text-[11px]">{p.barcode || "Tanpa barcode"}</span>
-                          <span className="md:hidden font-mono">· {p.barcode ? p.barcode.slice(-4) : "tanpa barcode"}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-muted-foreground hidden md:table-cell">{getCat(p.categoryId)}</td>
-                  <td className="px-3 py-2 text-right font-mono text-[12px] text-muted-foreground hidden lg:table-cell">{formatRupiah(p.costPrice ?? 0)}</td>
-                  <td className="px-3 py-2 text-right font-medium text-foreground">{formatRupiah(getDefaultPrice(p))}</td>
-                  <td className={`px-3 py-2 text-right font-semibold ${labaColor}`}>
-                    <span className="inline-flex items-center gap-1 justify-end"><TrendingUp size={11} className="opacity-60"/>{formatRupiah(labaPcs)}</span>
-                    <div className="text-[10px] font-normal opacity-70">{getDefaultPrice(p)>0 ? Math.round(labaPcs/getDefaultPrice(p)*100):0}%</div>
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="font-medium text-foreground">{stats.terjual}</div>
-                    <div className="text-[10px] text-muted-foreground">{stats.count} trx</div>
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <span className={`inline-flex min-w-7 justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${p.stock<=2 ? "bg-destructive text-destructive-foreground" : p.stock<=5 ? "bg-amber-500/15 text-amber-600" : "bg-foreground/[0.07] text-foreground"}`}>{p.stock}</span>
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="flex justify-end gap-0.5">
-                      <Link href={`/stock/products/${p.id}`} className="rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06]"><Eye size={13} /></Link>
-                      <Link href={`/stock/products/${p.id}?edit=1`} className="rounded p-1.5 text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06]"><Pencil size={13} /></Link>
-                      <button onClick={() => setDeleteTarget({ id: p.id, name: p.name })} className="rounded p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10"><Trash2 size={13} /></button>
-                    </div>
-                  </td>
-                </tr>
-                {isExp && (
-                  <tr className="bg-muted/20">
-                    <td colSpan={9} className="px-3 py-3">
-                      {/* ringkasan profit */}
-                      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        <div className="rounded-lg border border-border bg-background p-2.5">
-                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Terjual</div>
-                          <div className="text-[14px] font-bold text-foreground">{stats.terjual} pcs</div>
-                          <div className="text-[11px] text-muted-foreground">{stats.count} transaksi</div>
-                        </div>
-                        <div className="rounded-lg border border-border bg-background p-2.5">
-                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Omzet bersih</div>
-                          <div className="text-[13px] font-semibold text-foreground">{formatRupiah(stats.omzet)}</div>
-                        </div>
-                        <div className="rounded-lg border border-border bg-background p-2.5">
-                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Modal terpakai</div>
-                          <div className="text-[13px] font-medium text-muted-foreground">{formatRupiah(stats.modal)}</div>
-                        </div>
-                        <div className={`rounded-lg border p-2.5 ${stats.laba>=0 ? "border-emerald-500/20 bg-emerald-500/10" : "border-destructive/20 bg-destructive/10"}`}>
-                          <div className="text-[10px] uppercase tracking-wide opacity-70">Laba total</div>
-                          <div className={`text-[13px] font-bold ${stats.laba>=0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>{formatRupiah(stats.laba)}</div>
-                          <div className="text-[11px] opacity-70">{stats.omzet>0 ? Math.round(stats.laba/stats.omzet*100):0}% margin</div>
-                        </div>
-                      </div>
-
-                      {/* riwayat pembelian / penjualan */}
-                      <div className="rounded-lg border border-border bg-background overflow-hidden">
-                        <div className="flex items-center gap-1.5 border-b border-border bg-muted/30 px-3 py-2">
-                          <History size={13} className="text-muted-foreground"/>
-                          <span className="text-[12px] font-semibold text-foreground">Riwayat Penjualan</span>
-                          <span className="text-[11px] text-muted-foreground">— dropdown per transaksi</span>
-                          <span className="ml-auto text-[11px] text-muted-foreground">{getSalesHistory(p.id).length} baris</span>
-                        </div>
-                        {getSalesHistory(p.id).length===0 ? (
-                          <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">Belum pernah terjual</div>
-                        ) : (
-                          <div className="max-h-64 overflow-y-auto">
-                            <table className="w-full text-[11px]">
-                              <thead className="sticky top-0 bg-background">
-                                <tr className="border-b border-border text-muted-foreground">
-                                  <th className="px-2.5 py-1.5 text-left font-medium">Tanggal / Invoice</th>
-                                  <th className="px-2.5 py-1.5 text-left font-medium hidden sm:table-cell">Pelanggan</th>
-                                  <th className="px-2.5 py-1.5 text-right font-medium">Qty</th>
-                                  <th className="px-2.5 py-1.5 text-right font-medium">Harga</th>
-                                  <th className="px-2.5 py-1.5 text-right font-medium hidden sm:table-cell">Modal</th>
-                                  <th className="px-2.5 py-1.5 text-right font-medium">Laba</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {getSalesHistory(p.id).slice(0,30).map(({order, item, allocatedNet})=>{
-                                  const discPesanan = Math.max(0, item.subtotal - allocatedNet);
-                                  const revenue = allocatedNet;
-                                  const cost = (item.costPrice ?? 0)*item.quantity;
-                                  const laba = revenue - cost;
-                                  return (
-                                    <tr key={order.id+item.id} className="border-b border-border/40 last:border-0 hover:bg-muted/40">
-                                      <td className="px-2.5 py-1.5">
-                                        <div className="font-medium text-foreground">{order.id}</div>
-                                        <div className="text-[11px] text-muted-foreground">{order.date} · <span className={`rounded px-1 py-0.5 text-[10px] ${order.status==="COMPLETED"?"bg-emerald-500/15 text-emerald-600": order.status==="CANCELLED"?"bg-destructive/15 text-destructive":"bg-foreground/10 text-foreground"}`}>{order.status}</span></div>
-                                      </td>
-                                      <td className="px-2.5 py-1.5 hidden sm:table-cell text-muted-foreground truncate max-w-[110px]">{order.customerName}</td>
-                                      <td className="px-2.5 py-1.5 text-right font-medium text-foreground">×{item.quantity}</td>
-                                      <td className="px-2.5 py-1.5 text-right">
-                                        <div className="font-medium text-foreground">{formatRupiah(item.unitPrice)}</div>
-                                        {item.discountPercent>0 && <div className="text-destructive">−{item.discountPercent}%</div>}
-                                        {discPesanan>0 && <div className="text-amber-600 text-[10px]">−{formatRupiah(discPesanan)} pesan</div>}
-                                      </td>
-                                      <td className="px-2.5 py-1.5 text-right text-muted-foreground hidden sm:table-cell">{formatRupiah(cost)}</td>
-                                      <td className={`px-2.5 py-1.5 text-right font-semibold ${laba>=0?"text-emerald-600 dark:text-emerald-400":"text-destructive"}`}>{formatRupiah(laba)}</td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                            {getSalesHistory(p.id).length>30 && <div className="px-2.5 py-1.5 text-center text-[11px] text-muted-foreground">+{getSalesHistory(p.id).length-30} transaksi lagi — lihat detail produk</div>}
-                          </div>
-                        )}
-                      </div>
-                      <div className="mt-2 flex justify-end">
-                        <Link href={`/stock/products/${p.id}`} className="text-[11px] font-medium text-foreground hover:underline">Buka halaman produk →</Link>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-                </Fragment>
-                );
-              })}
-              {filtered.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">Tidak ada produk</td></tr>
-              )}
-            </tbody>
-          </table>
+      <Metrics items={[
+        { label: "Judul di katalog", value: products.length, note: "Seluruh koleksi buku", tone: "accent" },
+        { label: "Buku tersedia", value: products.reduce((sum, p) => sum + p.stock, 0).toLocaleString("id-ID"), note: "Total unit di rak" },
+        { label: "Stok menipis", value: products.filter(p => p.stock > 0 && p.stock <= 5).length, note: "Sisa 1–5 unit", tone: "warning" },
+        { label: "Stok habis", value: products.filter(p => p.stock <= 0).length, note: "Perlu diisi kembali" },
+      ]} />
+      <section className="workspace-panel">
+        <PanelHeading title="Katalog buku" description={filtered.length + " dari " + products.length + " judul"} actions={<Link href="/stock/categories" className="workspace-button">Kelola kategori</Link>} />
+        <div className="workspace-toolbar">
+          <SearchField label="Cari judul atau barcode" value={search} onChange={e => setSearch(e.target.value)} />
+          <Select value={catFilter} onValueChange={setCatFilter}>
+            <SelectTrigger aria-label="Filter kategori produk" className="min-h-11 w-full sm:w-52" placeholder="Semua kategori" />
+            <SelectContent><SelectItem index={0} value="all">Semua kategori</SelectItem>{categories.map((c,i) => <SelectItem key={c.id} index={i+1} value={c.id}><CategoryName c={c} /></SelectItem>)}</SelectContent>
+          </Select>
+          <select aria-label="Filter stok" value={stockFilter} onChange={e => setStockFilter(e.target.value)} className="h-11 rounded-lg border border-input bg-background px-3 text-sm"><option value="all">Semua stok</option><option value="low">Stok menipis</option><option value="empty">Stok habis</option></select>
         </div>
-      </div>
+        <div className="catalog-head" aria-hidden="true"><span>Buku / kategori</span><span>Harga jual</span><span className="catalog-sales">Terjual</span><span>Stok</span><span className="text-right">Tindakan</span></div>
+        {filtered.map(p => {
+          const thumb = productImageUrl(p.imagePath);
+          const stats = getSoldStats(p.id);
+          const isExp = expandedId === p.id;
+          return <article key={p.id} className="catalog-entry">
+            <div className="catalog-row">
+              <div className="catalog-identity flex min-w-0 items-center gap-3">
+                <button type="button" onClick={() => setDetailProduct(p)} aria-label={"Lihat sampul dan detail " + p.name} className="catalog-cover">{thumb ? <img src={thumb} alt="" loading="lazy" /> : <ImageIcon size={20} className="text-muted-foreground" />}</button>
+                <div className="min-w-0"><Link href={"/stock/products/" + p.id} className="font-semibold leading-relaxed hover:underline">{p.name}</Link><p className="mt-1 text-xs text-muted-foreground">{getCat(p.categoryId)}</p><p className="mt-1 font-mono text-[11px] text-muted-foreground">{p.barcode || "Tanpa barcode"}</p></div>
+              </div>
+              <div><span className="font-semibold tabular-nums">{formatRupiah(getDefaultPrice(p))}</span><p className="mt-1 text-[11px] text-muted-foreground">Modal {formatRupiah(p.costPrice ?? 0)}</p><p className="mt-1 text-[11px] text-muted-foreground">Laba {formatRupiah(getLabaPerPcs(p))}/buku</p></div>
+              <div className="catalog-sales"><span className="font-medium tabular-nums">{stats.terjual}</span><p className="mt-1 text-[11px] text-muted-foreground">{stats.count} transaksi</p></div>
+              <div className="catalog-stock"><span className={p.stock <= 5 ? "font-semibold text-destructive" : "font-semibold"}>{p.stock}</span><p className="mt-1 text-[11px] text-muted-foreground">{p.stock <= 0 ? "Habis" : p.stock <= 5 ? "Menipis" : "Tersedia"}</p></div>
+              <div className="catalog-actions">
+                <button aria-label={"Riwayat " + p.name} aria-expanded={isExp} aria-controls={"history-"+p.id} onClick={() => setExpandedId(isExp ? null : p.id)} className="workspace-icon">{isExp ? <ChevronUp size={17} /> : <History size={17} />}<span className="text-xs md:hidden">Riwayat</span></button>
+                <Link href={"/stock/products/"+p.id+"?edit=1"} aria-label={"Edit " + p.name} className="workspace-icon"><Pencil size={16} /><span className="text-xs md:hidden">Edit</span></Link>
+                <button aria-label={"Hapus " + p.name} onClick={() => setDeleteTarget({id:p.id,name:p.name})} className="workspace-icon hover:text-destructive"><Trash2 size={16} /><span className="text-xs md:hidden">Hapus</span></button>
+              </div>
+            </div>
+            {isExp && <div id={"history-"+p.id} className="catalog-detail">
+              <Metrics items={[{label:"Terjual",value:stats.terjual+" buku"},{label:"Omzet bersih",value:formatRupiah(stats.omzet)},{label:"Modal terpakai",value:formatRupiah(stats.modal)},{label:"Laba penjualan",value:formatRupiah(stats.laba),tone:"accent"}]} />
+              <div className="overflow-x-auto"><table className="w-full text-xs"><caption className="sr-only">Riwayat penjualan {p.name}</caption><thead><tr className="text-left"><th className="px-3">Invoice / tanggal</th><th className="px-3">Pelanggan</th><th className="px-3 text-right">Jumlah</th><th className="px-3 text-right">Bersih</th><th className="px-3 text-right">Laba</th></tr></thead><tbody>
+              {getSalesHistory(p.id).slice(0,30).map(({order,item,allocatedNet}) => <tr key={order.id+item.id} className="border-b border-border"><td className="px-3"><Link className="font-medium hover:underline" href={"/sales/orders/"+order.id}>{order.id}</Link><p className="mt-1 text-muted-foreground">{order.date}</p></td><td className="px-3">{order.customerName}</td><td className="px-3 text-right">{item.quantity}</td><td className="px-3 text-right">{formatRupiah(allocatedNet)}</td><td className="px-3 text-right">{formatRupiah(allocatedNet-(item.costPrice??0)*item.quantity)}</td></tr>)}
+              {getSalesHistory(p.id).length===0 && <tr><td colSpan={5} className="py-6 text-center text-muted-foreground">Belum ada penjualan untuk buku ini.</td></tr>}
+              </tbody></table></div><Link href={"/stock/products/"+p.id} className="workspace-button mt-4">Buka detail & riwayat lengkap <ChevronDown className="-rotate-90" size={14} /></Link>
+            </div>}
+          </article>;
+        })}
+        {!filtered.length && <EmptyPanel title={products.length ? "Buku tidak ditemukan" : "Katalog masih kosong"} description={products.length ? "Coba kata kunci lain atau reset filter untuk melihat semua buku." : "Tambahkan buku pertama untuk mulai mencatat stok dan penjualan."}>{products.length ? <button className="workspace-button" onClick={() => {setSearch("");setCatFilter("all");setStockFilter("all");}}>Reset filter</button> : <Link className="workspace-button workspace-button-primary" href="/stock/products/new">Tambah produk</Link>}</EmptyPanel>}
+      </section>
 
       <Dialog open={detailProduct !== null} onOpenChange={(open) => { if (!open) setDetailProduct(null); }}>
         <DialogContent size="lg">
@@ -429,7 +286,6 @@ export default function ProductsPage() {
             <div className="grid gap-4 sm:grid-cols-[minmax(140px,200px)_1fr]">
               <div className="mx-auto flex aspect-[2/3] w-full max-w-[200px] items-center justify-center self-start overflow-hidden rounded-lg border border-border bg-muted/30">
                 {detailProduct.imagePath ? (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img src={productImageUrl(detailProduct.imagePath) ?? undefined} alt={`Sampul ${detailProduct.name}`} className="h-full w-full object-contain" />
                 ) : (
                   <div className="flex flex-col items-center gap-2 text-muted-foreground/60"><ImageIcon size={30} /><span className="text-xs">Belum ada sampul</span></div>

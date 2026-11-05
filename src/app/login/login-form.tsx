@@ -1,16 +1,14 @@
-"use client";
 
 import { useState, type FormEvent } from "react";
-import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { ArrowRight, Eye, EyeOff } from "lucide-react";
+import { useRouter } from "@/lib/navigation";
 import { Button } from "@/components/ui/button";
-import { InputGroup, InputField } from "@/components/ui/input-group";
-import { fontWeights } from "@/lib/font-weight";
 import { useAuth } from "@/lib/auth-context";
 
 export function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [emailError, setEmailError] = useState<string | undefined>();
   const [passwordError, setPasswordError] = useState<string | undefined>();
   const [submitting, setSubmitting] = useState(false);
@@ -69,104 +67,55 @@ export function LoginForm() {
   };
 
   return (
-    <div className="w-full max-w-sm">
-      <div className="flex flex-col gap-2">
-        {/* Brand mark — visible here so the right column doesn't have to carry
-            the whole identity. This column is always dark, so it uses the
-            dark-mode cut of the wordmark regardless of the stored theme. */}
-        <Image
-          src="/brand/logo-dark.webp"
-          alt="Alfan Media"
-          width={200}
-          height={119}
-          sizes="70px"
-          loading="eager"
-          className="mb-3 h-10 w-auto object-contain"
-        />
-
-        <h1
-          className="text-[28px] leading-tight tracking-tight text-foreground"
-          style={{ fontVariationSettings: fontWeights.semibold }}
-        >
-          Selamat datang kembali
-        </h1>
-        <p className="text-[14px] leading-relaxed text-muted-foreground">
-          Masuk untuk mengelola produk, stok, penjualan, dan laporan toko.
-        </p>
-      </div>
+    <div>
+      <h1 className="font-serif text-4xl tracking-tight sm:text-5xl">Masuk</h1>
+      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+        Gunakan akun toko untuk membuka ruang kerja Alfan Media.
+      </p>
 
       {serverError && (
-        <div role="alert" aria-live="assertive" className="rounded-lg bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
-          {serverError}
-        </div>
+        <p role="alert" className="mt-5 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">{serverError}</p>
       )}
-      {resetSent && <p role="status" aria-live="polite" className="rounded-lg bg-emerald-500/10 px-3 py-2 text-[13px] text-emerald-700 dark:text-emerald-300">Jika akun dengan email tersebut tersedia, instruksi pemulihan kata sandi telah dikirim.</p>}
-      <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
-        <InputGroup size="default" className="w-full">
-          <InputField
-            index={0}
-            label="Alamat email"
-            type="email"
-            placeholder="nama@email.com"
-            autoComplete="email"
-            value={email}
-            onChange={(value) => {
-              setEmail(value);
-              if (emailError) setEmailError(undefined);
-            }}
-            error={emailError}
-          />
-          <InputField
-            index={1}
-            label="Kata sandi"
-            type="password"
-            placeholder="Masukkan kata sandi"
-            autoComplete="current-password"
-            value={password}
-            onChange={(value) => {
-              setPassword(value);
-              if (passwordError) setPasswordError(undefined);
-            }}
-            error={passwordError}
-          />
-        </InputGroup>
+      {resetSent && (
+        <p role="status" className="mt-5 rounded-lg bg-primary/10 px-4 py-3 text-sm text-foreground">
+          Jika email terdaftar, instruksi pemulihan akan dikirim.
+        </p>
+      )}
 
-        <div className="-mt-1 flex items-center justify-start">
-          <button
-            type="button"
-            onClick={handleForgotPassword}
-            disabled={resetting}
-            className="cursor-pointer text-[12px] text-muted-foreground transition-colors duration-80 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--focus-ring,#6B97FF)] rounded-sm"
-            style={{ fontVariationSettings: fontWeights.medium }}
-          >
-            {resetting ? "Mengirim tautan…" : "Lupa kata sandi?"}
-          </button>
+      <form onSubmit={handleSubmit} noValidate className="mt-8 grid gap-5">
+        <div>
+          <label htmlFor="login-email" className="mb-2 block text-sm font-medium">Alamat email</label>
+          <input id="login-email" type="email" autoComplete="username" placeholder="nama@email.com"
+            aria-invalid={Boolean(emailError)} aria-describedby={emailError ? "login-email-error" : undefined}
+            value={email} onChange={(event) => { setEmail(event.target.value); setEmailError(undefined); }}
+            className="h-12 w-full rounded-lg border border-input bg-card px-4 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          {emailError && <p id="login-email-error" className="mt-2 text-sm text-destructive">{emailError}</p>}
+        </div>
+        <div>
+          <label htmlFor="login-password" className="mb-2 block text-sm font-medium">Kata sandi</label>
+          <div className="relative">
+            <input id="login-password" type={showPassword ? "text" : "password"} autoComplete="current-password"
+              placeholder="Masukkan kata sandi" aria-invalid={Boolean(passwordError)}
+              aria-describedby={passwordError ? "login-password-error" : undefined}
+              value={password} onChange={(event) => { setPassword(event.target.value); setPasswordError(undefined); }}
+              className="h-12 w-full rounded-lg border border-input bg-card pr-14 pl-4 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+            <button type="button" aria-label={showPassword ? "Sembunyikan kata sandi" : "Tampilkan kata sandi"}
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute inset-y-0 right-0 grid w-12 place-items-center rounded-r-lg text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+              {showPassword ? <EyeOff size={19} aria-hidden="true" /> : <Eye size={19} aria-hidden="true" />}
+            </button>
+          </div>
+          {passwordError && <p id="login-password-error" className="mt-2 text-sm text-destructive">{passwordError}</p>}
         </div>
 
-        <Button type="submit" variant="primary" loading={submitting} className="h-10 w-full text-[14px]">
-          Masuk
+        <button type="button" onClick={handleForgotPassword} disabled={resetting}
+          className="-mt-3 min-h-11 w-fit rounded-sm text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60">
+          {resetting ? "Mengirim tautan…" : "Lupa kata sandi?"}
+        </button>
+        <Button type="submit" variant="primary" loading={submitting} className="h-12 w-full bg-primary text-base text-primary-foreground">
+          <span className="inline-flex items-center gap-2">Masuk <ArrowRight size={18} aria-hidden="true" /></span>
         </Button>
       </form>
-
-      <p className="mt-8 text-center text-[12px] text-muted-foreground">
-        Dengan melanjutkan, Anda menyetujui{" "}
-        <a
-          href="#"
-          className="text-foreground underline-offset-4 hover:underline"
-          style={{ fontVariationSettings: fontWeights.medium }}
-        >
-          Ketentuan
-        </a>{" "}
-        dan{" "}
-        <a
-          href="#"
-          className="text-foreground underline-offset-4 hover:underline"
-          style={{ fontVariationSettings: fontWeights.medium }}
-        >
-          Kebijakan Privasi
-        </a>
-        .
-      </p>
     </div>
   );
 }

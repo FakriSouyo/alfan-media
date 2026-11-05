@@ -4,7 +4,9 @@ import { useState, useMemo } from "react";
 import { useStore } from "@/lib/store-context";
 import { PageHeader } from "@/components/page-header";
 import { CategoryName, categoryText } from "@/components/category-label";
-import { Download } from "lucide-react";
+import { Metrics, ReportNav, PanelHeading, SearchField, EmptyPanel } from "@/components/workspace";
+import { Link } from "@/lib/navigation";
+import { Download, ArrowUpRight } from "lucide-react";
 import { businessDate } from "@/lib/business-date";
 import { csvCell, escapeHtml } from "@/lib/sales-report";
 import {
@@ -16,6 +18,8 @@ import {
 
 export default function InventoryReportPage() {
   const { products, categories, movements } = useStore();
+  const [search,setSearch] = useState("");
+  const [onlyLow,setOnlyLow] = useState(false);
   const [catFilter, setCatFilter] = useState("all");
 
   const filteredProducts = useMemo(() => {
@@ -38,6 +42,8 @@ export default function InventoryReportPage() {
   }, [filteredProducts, movements, categories]);
 
   const lowStock = productStats.filter((p) => p.stock <= 5);
+
+  const visibleProducts = productStats.filter(p => (!onlyLow || p.stock <= 5) && (p.name.toLocaleLowerCase("id-ID").includes(search.toLocaleLowerCase("id-ID")) || p.barcode.includes(search)));
 
   const handleExportPDF = () => {
     const w = window.open("", "_blank", "width=800,height=600");
@@ -73,49 +79,37 @@ export default function InventoryReportPage() {
   };
 
   return (
-    <div className="p-4 lg:p-6">
+    <div className="workspace-page">
       <PageHeader
         title="Laporan Inventaris"
         description="Status stok dan pergerakan inventaris."
         actions={
           <div className="flex gap-2">
-            <button onClick={handleExportPDF} className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04]">
+            <button onClick={handleExportPDF} className="workspace-button">
               <Download size={14} /> PDF
             </button>
-            <button onClick={handleExportExcel} className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-[13px] text-foreground hover:bg-foreground/[0.04]">
+            <button onClick={handleExportExcel} className="workspace-button">
               <Download size={14} /> CSV
             </button>
           </div>
         }
       />
 
-      {/* Filter */}
-      <div className="mt-4">
-        <Select value={catFilter} onValueChange={setCatFilter}>
-          <SelectTrigger className="h-8 w-auto min-w-[168px]" placeholder="Semua Kategori" />
-          <SelectContent>
-            <SelectItem index={0} value="all">Semua Kategori</SelectItem>
-            {categories.map((c, i) => (
-              <SelectItem key={c.id} index={i + 1} value={c.id}><CategoryName c={c} /></SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Low Stock Alert */}
-      {lowStock.length > 0 && (
-        <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
-          <h3 className="text-[13px] font-semibold text-amber-500">Stok Menipis ({lowStock.length} produk)</h3>
-          <div className="mt-1 flex flex-wrap gap-2">
-            {lowStock.map((p) => (
-              <span key={p.id} className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-500">{p.name} ({p.stock})</span>
-            ))}
-          </div>
+      <ReportNav active="inventory" />
+      <Metrics items={[
+        {label:"Jumlah judul",value:productStats.length,note:"Sesuai kategori terpilih"},
+        {label:"Persediaan saat ini",value:productStats.reduce((sum,p)=>sum+p.stock,0).toLocaleString("id-ID"),note:"Unit buku tersedia",tone:"accent"},
+        {label:"Total masuk",value:productStats.reduce((sum,p)=>sum+p.stockIn,0).toLocaleString("id-ID"),note:"Akumulasi pergerakan positif"},
+        {label:"Perlu restok",value:lowStock.length,note:"Stok 5 unit atau kurang",tone:"warning"},
+      ]} />
+      <section className="workspace-panel">
+        <PanelHeading title="Pergerakan persediaan" description="Stok masuk, keluar, dan jumlah buku saat ini." actions={<Link href="/stock/products" className="workspace-button">Kelola stok <ArrowUpRight size={16} /></Link>} />
+        <div className="workspace-toolbar"><SearchField label="Cari buku atau barcode" value={search} onChange={e=>setSearch(e.target.value)} />
+          <Select value={catFilter} onValueChange={setCatFilter}><SelectTrigger aria-label="Kategori inventaris" className="w-full sm:w-52" placeholder="Semua kategori" /><SelectContent><SelectItem index={0} value="all">Semua kategori</SelectItem>{categories.map((c,i)=><SelectItem key={c.id} index={i+1} value={c.id}><CategoryName c={c} /></SelectItem>)}</SelectContent></Select>
+          <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs"><input type="checkbox" checked={onlyLow} onChange={e=>setOnlyLow(e.target.checked)} className="size-4 accent-primary" />Perlu restok ({lowStock.length})</label>
         </div>
-      )}
-
       {/* Table */}
-      <div className="mt-3 rounded-xl border border-border bg-background">
+      <div>
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
@@ -128,24 +122,27 @@ export default function InventoryReportPage() {
               </tr>
             </thead>
             <tbody>
-              {productStats.map((p) => (
+              {visibleProducts.map((p) => (
                 <tr key={p.id} className="border-b border-border/50 last:border-0 hover:bg-foreground/[0.02]">
                   <td className="px-3 py-2">
-                    <div className="font-medium text-foreground">{p.name}</div>
+                    <Link href={"/stock/products/"+p.id} className="font-medium text-foreground hover:underline">{p.name}</Link><p className="mt-1 font-mono text-[11px] text-muted-foreground">{p.barcode || "Tanpa barcode"}</p>
                     <div className="text-[11px] text-muted-foreground md:hidden">{p.catName}</div>
                   </td>
                   <td className="px-3 py-2 text-muted-foreground hidden md:table-cell">{p.catName}</td>
-                  <td className="px-3 py-2 text-right text-emerald-500">{p.stockIn}</td>
+                  <td className="px-3 py-2 text-right text-primary">{p.stockIn}</td>
                   <td className="px-3 py-2 text-right text-destructive">{p.stockOut}</td>
                   <td className="px-3 py-2 text-right">
                     <span className={p.stock <= 5 ? "font-semibold text-destructive" : "text-foreground font-medium"}>{p.stock}</span>
                   </td>
                 </tr>
               ))}
+              {!visibleProducts.length && <tr><td colSpan={5}><EmptyPanel title="Tidak ada buku yang cocok" description="Coba kategori lain atau reset pencarian dan filter stok."><button className="workspace-button" onClick={()=>{setSearch("");setOnlyLow(false);setCatFilter("all");}}>Reset filter</button></EmptyPanel></td></tr>}
             </tbody>
           </table>
         </div>
       </div>
+      </section>
+      <p className="mt-3 text-xs text-muted-foreground">Ekspor mencakup seluruh produk dalam kategori terpilih.</p>
     </div>
   );
 }

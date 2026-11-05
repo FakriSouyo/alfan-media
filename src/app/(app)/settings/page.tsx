@@ -1,10 +1,11 @@
-"use client";
 
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader } from "@/components/page-header";
 import { AiSettingsCard } from "@/components/settings/ai-settings-card";
-import { Moon, Sun, Download, Loader2, FileJson, Check } from "lucide-react";
+import { useTheme } from "@/lib/theme-context";
+import { Link } from "@/lib/navigation";
+import { Moon, Sun, Download, Loader2, FileJson, Check, ArrowUpRight } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 // Tabel yang di-export (urutan penting: parent dulu, child kemudian,
@@ -43,25 +44,12 @@ export default function SettingsPage() {
   const { user, logout } = useAuth();
   const supabase = getSupabaseBrowserClient();
 
-  // Guard for SSR: `document` is undefined while this client component is being
-  // server-rendered. Accessing it directly in a useState initializer crashes the
-  // page on first paint, so only read the DOM after the client has mounted.
-  const [theme, setTheme] = useState<"dark" | "light">(() =>
-    typeof document !== "undefined" && document.documentElement.classList.contains("dark")
-      ? "dark"
-      : "light"
-  );
+  const { theme, setTheme } = useTheme();
 
   const [downloading, setDownloading] = useState(false);
   const [lastDownloadAt, setLastDownloadAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [counts, setCounts] = useState<Record<string, number> | null>(null);
-
-  const toggleTheme = () => {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    document.documentElement.classList.toggle("dark", next === "dark");
-  };
 
   // Hitung jumlah baris per tabel (ringan, hanya count, untuk preview).
   const loadCounts = async () => {
@@ -84,12 +72,14 @@ export default function SettingsPage() {
       // Fetch semua tabel secara paralel
       const results = await Promise.all(
         EXPORT_TABLES.map(async (table) => {
-          const { data, error } = await supabase
-            .from(table)
-            .select("*")
-            .order(EXPORT_ORDER_COLUMN[table], { ascending: true });
-          if (error) throw new Error(`${table}: ${error.message}`);
-          return [table, data ?? []] as const;
+          const rows: Record<string, unknown>[] = [];
+          for (let offset = 0; ; offset += 1000) {
+            const { data, error } = await supabase.from(table).select("*").order(EXPORT_ORDER_COLUMN[table], { ascending: true }).order(table === "settings" ? "key" : "id", { ascending: true }).range(offset, offset + 999);
+            if (error) throw new Error(`${table}: ${error.message}`);
+            rows.push(...(data ?? []));
+            if ((data ?? []).length < 1000) break;
+          }
+          return [table, rows] as const;
         })
       );
 
@@ -132,106 +122,16 @@ export default function SettingsPage() {
     }
   };
 
-  return (
-    <div className="p-4 lg:p-6">
-      <PageHeader title="Pengaturan" description="Kelola pengaturan aplikasi." />
-
-      <div className="mt-4 max-w-lg space-y-4">
-        {/* User */}
-        <div className="rounded-xl border border-border bg-background p-4">
-          <h3 className="mb-3 text-[14px] font-semibold text-foreground">Akun</h3>
-          <div className="flex flex-col gap-2 text-[13px]">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Nama</span>
-              <span className="font-medium text-foreground">{user?.name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Email</span>
-              <span className="font-medium text-foreground">{user?.email}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Role</span>
-              <span className="font-medium text-foreground capitalize">{user?.role}</span>
-            </div>
-            <button
-              onClick={logout}
-              className="mt-3 self-start rounded-lg border border-border px-3 py-2 text-[13px] text-foreground hover:bg-foreground/[0.04]"
-            >
-              Keluar
-            </button>
-          </div>
-        </div>
-
-        {/* Appearance */}
-        <div className="rounded-xl border border-border bg-background p-4">
-          <h3 className="mb-3 text-[14px] font-semibold text-foreground">Tampilan</h3>
-          <button
-            onClick={toggleTheme}
-            className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[13px] text-foreground hover:bg-foreground/[0.04]"
-          >
-            {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-            {theme === "dark" ? "Mode Terang" : "Mode Gelap"}
-          </button>
-        </div>
-
-        {/* AI */}
-        <AiSettingsCard isAdmin={user?.role === "admin"} />
-
-        {/* Data — Download JSON */}
-        <div className="rounded-xl border border-border bg-background p-4">
-          <h3 className="mb-3 text-[14px] font-semibold text-foreground">Data</h3>
-
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={downloadJson}
-              disabled={downloading}
-              className="flex items-center gap-2 self-start rounded-lg border border-border bg-foreground px-3 py-2 text-[13px] font-medium text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {downloading ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <Download size={14} />
-              )}
-              {downloading ? "Mengunduh…" : "Download Semua Data (JSON)"}
-            </button>
-
-            <p className="text-[11px] text-muted-foreground">
-              Mengunduh seluruh data dari Supabase (kategori, produk, pesanan,
-              pelanggan, pergerakan stok) dalam satu file JSON. Berguna untuk
-              backup manual atau migrasi.
-            </p>
-
-            {lastDownloadAt && !error && (
-              <p className="mt-1 flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
-                <Check size={11} /> Berhasil diunduh {lastDownloadAt}
-              </p>
-            )}
-
-            {error && (
-              <p className="mt-1 text-[11px] text-destructive">{error}</p>
-            )}
-          </div>
-
-          {/* Counts (muncul setelah download) */}
-          {counts && (
-            <div className="mt-4 rounded-lg border border-border/60 bg-foreground/[0.02] p-3">
-              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                <FileJson size={11} /> Ringkasan data
-              </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px]">
-                {EXPORT_TABLES.map((t) => (
-                  <div key={t} className="flex justify-between">
-                    <span className="text-muted-foreground">{t}</span>
-                    <span className="font-medium tabular-nums text-foreground">
-                      {counts[t] < 0 ? "—" : counts[t]}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  return <div className="workspace-page max-w-6xl">
+    <PageHeader title="Pengaturan" description="Sesuaikan ruang kerja, kelola asisten, dan simpan salinan data toko." />
+    <nav className="workspace-tabs" aria-label="Bagian pengaturan"><a href="#appearance">Tampilan</a><a href="#account">Akun</a><a href="#ai">Asisten AI</a><a href="#backup">Data toko</a></nav>
+    <section id="appearance" className="settings-section scroll-mt-20"><header><h2>Tampilan</h2><p>Pilih suasana yang nyaman untuk bekerja. Pilihan tersimpan di perangkat ini.</p></header><div className="grid max-w-lg grid-cols-2 gap-4"><button aria-pressed={theme==="light"} onClick={()=>setTheme("light")} className="theme-choice"><span className="theme-preview" aria-hidden="true"><i /><i /></span><span className="flex items-center gap-2"><Sun size={16} />Terang {theme==="light" && <Check size={15} />}</span></button><button aria-pressed={theme==="dark"} onClick={()=>setTheme("dark")} className="theme-choice"><span className="theme-preview theme-preview-dark" aria-hidden="true"><i /><i /></span><span className="flex items-center gap-2"><Moon size={16} />Gelap {theme==="dark" && <Check size={15} />}</span></button></div></section>
+    <section id="account" className="settings-section scroll-mt-20"><header><h2>Akun</h2><p>Informasi akun yang digunakan untuk mengelola toko.</p></header><div className="min-w-0"><div className="flex flex-wrap items-center gap-4"><div className="flex size-14 items-center justify-center rounded-xl bg-primary/10 font-serif text-2xl text-primary">{user?.name?.charAt(0)}</div><div className="min-w-0"><p className="text-sm font-semibold">{user?.name}</p><p className="mt-1 break-all text-xs text-muted-foreground">{user?.email}</p><p className="mt-1 text-xs text-muted-foreground">{user?.role==="admin"?"Administrator":"Staf toko"}</p></div></div><div className="mt-5 flex flex-wrap gap-2"><Link href="/profile" className="workspace-button">Lihat profil <ArrowUpRight size={15} /></Link><button onClick={()=>void logout()} className="workspace-button">Keluar</button></div></div></section>
+    <section id="ai" className="settings-section scroll-mt-20"><header><h2>Asisten AI</h2><p>Atur koneksi dan model yang membantu pekerjaan harian toko.</p></header><div className="min-w-0"><AiSettingsCard isAdmin={user?.role==="admin"} /></div></section>
+    <section id="backup" className="settings-section scroll-mt-20"><header><h2>Data toko</h2><p>Unduh salinan kategori, produk, pesanan, pelanggan, dan pergerakan stok.</p></header><div className="min-w-0"><div className="flex items-start gap-3"><FileJson size={24} className="mt-1 shrink-0 text-primary" /><div><h3 className="text-sm font-semibold">Cadangan data operasional</h3><p className="mt-2 max-w-lg text-xs leading-relaxed text-muted-foreground">Tersimpan sebagai satu file JSON di perangkat Anda. Berisi data dari {EXPORT_TABLES.length} tabel operasional.</p></div></div><button onClick={()=>void downloadJson()} disabled={downloading} className="workspace-button workspace-button-primary mt-5">{downloading?<Loader2 size={16} className="animate-spin" />:<Download size={16} />}{downloading?"Menyiapkan unduhan…":"Unduh data JSON"}</button>
+      {lastDownloadAt && !error && <p role="status" className="mt-3 flex items-center gap-2 text-xs text-primary"><Check size={14} />Berhasil diunduh {lastDownloadAt}</p>}
+      {error && <p role="alert" className="mt-3 text-sm text-destructive">{error} Silakan coba unduh kembali.</p>}
+      {counts && <div className="mt-5 border-t border-border pt-4"><h3 className="mb-3 text-xs font-semibold">Isi cadangan terakhir</h3><dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">{EXPORT_TABLES.map(table=><div key={table} className="flex items-center justify-between gap-3 text-xs"><dt className="text-muted-foreground">{table}</dt><dd className="tabular-nums">{counts[table]<0?"Tidak tersedia":counts[table]}</dd></div>)}</dl></div>}
+    </div></section>
+  </div>;
 }

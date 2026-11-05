@@ -40,3 +40,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Cloudflare / Vite
+/dist/
+/.wrangler/
+.dev.vars*
+/migration-data/
+/artifacts/redesign/

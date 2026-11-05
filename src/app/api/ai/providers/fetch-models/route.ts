@@ -1,4 +1,3 @@
-import type { NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/agent/ai-config";
 import { fetchProviderModels, LlmError } from "@/lib/agent/llm/client";
 import type { ProviderModel } from "@/lib/agent/llm/types";
@@ -12,7 +11,7 @@ export const runtime = "nodejs";
  * mengembalikan daftar — tanpa menulis apa pun ke DB. Hasilnya disimpan ke
  * provider row hanya ketika form di-SIMPAN.
  */
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   const auth = await requireAdmin();
   if (!auth.ok) return Response.json({ error: auth.message }, { status: auth.status });
 

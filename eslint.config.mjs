@@ -1,18 +1,2 @@
-import { defineConfig, globalIgnores } from "eslint/config";
-import nextVitals from "eslint-config-next/core-web-vitals";
-import nextTs from "eslint-config-next/typescript";
-
-const eslintConfig = defineConfig([
-  ...nextVitals,
-  ...nextTs,
-  // Override default ignores of eslint-config-next.
-  globalIgnores([
-    // Default ignores of eslint-config-next:
-    ".next/**",
-    "out/**",
-    "build/**",
-    "next-env.d.ts",
-  ]),
-]);
-
-export default eslintConfig;
+import tseslint from "typescript-eslint";
+export default tseslint.config({ignores:["dist/**","node_modules/**",".wrangler/**",".next/**","migration-data/**"]},...tseslint.configs.recommended,{rules:{"@typescript-eslint/no-unused-vars":["warn",{argsIgnorePattern:"^_",varsIgnorePattern:"^_"}]}},{files:["src/components/motion/animated-sidebar.tsx"],rules:{"@typescript-eslint/no-empty-object-type":"off"}},{files:["src/components/ui/select.tsx","src/components/ui/dropdown.tsx"],rules:{"@typescript-eslint/ban-ts-comment":"off"}});

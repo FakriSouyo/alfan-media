@@ -1,8 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import "../styles/ui-variants.css";
+@import "../styles/workspace.css";
 
 @custom-variant dark (&:is(.dark *));
+
+:root { --font-inter: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --font-geist-mono: ui-monospace, monospace; }
 
 @theme inline {
   --color-background: var(--background);
@@ -74,22 +77,22 @@
 }
 
 :root {
-  --background: #f7f7f7;
-  --foreground: #171717;
-  --card: #ffffff;
+  --background: #f6f4ed;
+  --foreground: #1d2b26;
+  --card: #fffdf7;
   --card-foreground: #171717;
-  --popover: #ffffff;
+  --popover: #fffdf7;
   --popover-foreground: #171717;
-  --primary: #171717;
+  --primary: #235b4d;
   --primary-foreground: #ffffff;
-  --secondary: #efefef;
-  --secondary-foreground: #171717;
-  --muted: #efefef;
-  --muted-foreground: #737373;
-  --accent: #ededed;
+  --secondary: #ecece3;
+  --secondary-foreground: #1d2b26;
+  --muted: #ecece3;
+  --muted-foreground: #53635b;
+  --accent: #e0ece3;
   --accent-foreground: #171717;
-  --destructive: #ef4444;
-  --border: #e1e1e1;
+  --destructive: #b92d35;
+  --border: #d9ddd1;
   --input: #d6d6d6;
   --ring: #bdbdbd;
   --chart-1: #171717;
@@ -98,25 +101,25 @@
   --chart-4: #a3a3a3;
   --chart-5: #d4d4d4;
   --radius: 0.75rem;
-  --sidebar: #ffffff;
+  --sidebar: #eeeee4;
   --sidebar-foreground: #171717;
   --sidebar-primary: #171717;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #ededed;
-  --sidebar-accent-foreground: #171717;
-  --sidebar-border: #e3e3e3;
+  --sidebar-accent: #dceadf;
+  --sidebar-accent-foreground: #1e4c3f;
+  --sidebar-border: #dfe2d7;
   --sidebar-ring: #a3a3a3;
 
   /* Fluid design tokens — light mode */
-  --ring: #bdbdbd;
-  --input: #d6d6d6;
-  --destructive: #ef4444;
+  --ring: #367a67;
+  --input: #aebcb1;
+  --destructive: #b92d35;
   --destructive-light: #fef2f2;
-  --focus-ring: #737373;
+  --focus-ring: #367a67;
   --checker-a: #bbb;
   --checker-b: #fff;
   --hover: #0000000a;
-  --active: #00000012;
+  --active: #235b4d1c;
   --shadow-color: #00000012;
   --shadow-1: 0 0 0 1px var(--shadow-color);
   --shadow-2: 0 0 0 1px var(--shadow-color), 0 1px 1px -.5px var(--shadow-color);
@@ -176,37 +179,36 @@
   color-scheme: light;
 
   /* Fluid surface ladder — light mode. 1 = substrate, 2+ stack up to 8. */
-  --surface-1: #f7f7f7;
-  --surface-2: #ffffff;
-  --surface-3: #ffffff;
-  --surface-4: #ffffff;
-  --surface-5: #ffffff;
-  --surface-6: #ffffff;
-  --surface-7: #ffffff;
-  --surface-8: #ffffff;
+  --surface-1: #f1f0e7;
+  --surface-2: #fffdf7;
+  --surface-3: #fffdf7;
+  --surface-4: #fffdf7;
+  --surface-5: #fffdf7;
+  --surface-6: #fffdf7;
+  --surface-7: #fffdf7;
+  --surface-8: #fffdf7;
 }
 
 .dark {
-  /* Fluid surface ladder — page substrate #171717 (surface-1), sidebar and
-     secondary fills lift to surface-2 (#1e1e1e), cards/popovers to surface-3
-     (#252525), interactive accents surface-4 (#2c2c2c). Progressive tonal
-     elevation via the #171717 → #484848 ladder, no pure black. */
-  --background: #171717;
-  --foreground: #fafafa;
-  --card: #242424;
+  /* Surface ladder tinted to the green paper palette: substrate #131a18,
+     sidebar surface-2 (#182420), cards/popovers surface-3 (#1f2a26), then
+     progressively lighter green-greys. No neutral greys, no pure black. */
+  --background: #151d1b;
+  --foreground: #f2f2e8;
+  --card: #1f2a26;
   --card-foreground: #fafafa;
-  --popover: #242424;
+  --popover: #1f2a26;
   --popover-foreground: #fafafa;
-  --primary: #fafafa;
-  --primary-foreground: #171717;
-  --secondary: #202020;
+  --primary: #a6d6bc;
+  --primary-foreground: #162c23;
+  --secondary: #1b2522;
   --secondary-foreground: #fafafa;
-  --muted: #202020;
-  --muted-foreground: #b3b3b3;
-  --accent: #2a2a2a;
+  --muted: #27332f;
+  --muted-foreground: #aebdb6;
+  --accent: #2b4038;
   --accent-foreground: #fafafa;
   --destructive: #f87171;
-  --border: #2d2d2d;
+  --border: #35433d;
   --input: #202020;
   --ring: #4a4a4a;
   --chart-1: #fafafa;
@@ -214,25 +216,25 @@
   --chart-3: #a3a3a3;
   --chart-4: #737373;
   --chart-5: #404040;
-  --sidebar: #1d1d1d;
+  --sidebar: #182420;
   --sidebar-foreground: #fafafa;
   --sidebar-primary: #fafafa;
   --sidebar-primary-foreground: #171717;
-  --sidebar-accent: #2b2b2b;
-  --sidebar-accent-foreground: #fafafa;
-  --sidebar-border: #2d2d2d;
+  --sidebar-accent: #2b4339;
+  --sidebar-accent-foreground: #cdebd8;
+  --sidebar-border: #2c3a35;
   --sidebar-ring: #4a4a4a;
 
   /* Fluid design tokens — dark mode (ladder over #171717) */
-  --ring: #4a4a4a;
-  --input: #1e1e1e;
+  --ring: #9ac9b0;
+  --input: #61746b;
   --destructive: #f87171;
   --destructive-light: #450a0a;
-  --focus-ring: #bdbdbd;
-  --checker-a: #171717;
-  --checker-b: #252525;
+  --focus-ring: #9ac9b0;
+  --checker-a: #151d1b;
+  --checker-b: #1f2a26;
   --hover: #ffffff12;
-  --active: #ffffff1f;
+  --active: #a6d6bc24;
   --shadow-color: #00000055;
   --dm-hi-base: #ffffff12;
   --dm-hi-mid: #ffffff1c;
@@ -245,14 +247,14 @@
   color-scheme: dark;
 
   /* Fluid surface ladder — dark mode. 1 = substrate, 2+ stack up to 8. */
-  --surface-1: #171717;
-  --surface-2: #1d1d1d;
-  --surface-3: #242424;
-  --surface-4: #2b2b2b;
-  --surface-5: #333333;
-  --surface-6: #3b3b3b;
-  --surface-7: #434343;
-  --surface-8: #4b4b4b;
+  --surface-1: #131a18;
+  --surface-2: #182420;
+  --surface-3: #1f2a26;
+  --surface-4: #26332e;
+  --surface-5: #2d3b36;
+  --surface-6: #34443e;
+  --surface-7: #3c4c46;
+  --surface-8: #44554e;
 }
 
 @layer base {
@@ -267,6 +269,20 @@
   html {
     @apply font-sans;
   }
+  /* Thin, theme-tinted scrollbars everywhere (utilities like scrollbar-hide still win). */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--foreground) 22%, transparent) transparent;
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--foreground) 22%, transparent) padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--foreground) 38%, transparent); }
+  ::-webkit-scrollbar-corner { background: transparent; }
   body {
     /* fluid type scale tokens (from your example) */
     --fs-display: 22px;
@@ -286,6 +302,10 @@
     background:
       radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--foreground) 3%, transparent), transparent 28rem),
       var(--background);
+  }
+
+  .app-page table thead {
+    background: var(--muted);
   }
 
   [data-slot="page-header"] {

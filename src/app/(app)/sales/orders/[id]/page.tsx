@@ -1,11 +1,12 @@
-"use client";
+import { useParams } from "@/lib/navigation";
 
-import { use, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { Link } from "@/lib/navigation";
+import { useRouter } from "@/lib/navigation";
 import { useStore } from "@/lib/store-context";
 import { formatRupiah } from "@/lib/currency";
 import { PageHeader } from "@/components/page-header";
+import { PanelHeading, OrderStatus } from "@/components/workspace";
 import { CategoryName } from "@/components/category-label";
 import { ArrowLeft, Printer, XCircle, FileText, CheckCircle2, Edit3, ShoppingCart, Archive, Trash2 } from "lucide-react";
 import { printSuratJalan } from "@/lib/surat-jalan";
@@ -22,8 +23,8 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 
-export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function OrderDetailPage() {
+  const { id } = useParams();
   const router = useRouter();
   const { orders, products, categories, loading, cancelOrder, completeOrder, checkoutOrder, archiveOrder, deleteOrder, updateSuratJalan } = useStore();
   const order = orders.find((o) => o.id === id);
@@ -50,7 +51,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
   if (!order) {
     return (
-      <div className="p-4 lg:p-6">
+      <div className="workspace-page">
         <p className="text-muted-foreground">Pesanan tidak ditemukan.</p>
         <Link href="/sales/orders" className="mt-2 text-[13px] text-foreground underline">Kembali</Link>
       </div>
@@ -78,21 +79,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
     setSjOpen(false);
   };
 
-  const statusColor: Record<string, string> = {
-    COMPLETED: "bg-emerald-500/15 text-emerald-500",
-    CHECKED_OUT: "bg-blue-500/15 text-blue-500",
-    DRAFT: "bg-muted text-muted-foreground",
-    CANCELLED: "bg-destructive/15 text-destructive",
-  };
-  const statusLabel: Record<string, string> = {
-    COMPLETED: "Selesai",
-    CHECKED_OUT: "Diproses",
-    DRAFT: "Draft",
-    CANCELLED: "Dibatalkan",
-  };
-
   return (
-    <div className="p-4 lg:p-6">
+    <div className="workspace-page">
       <div className="mb-4">
         <Link href="/sales/orders" className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground">
           <ArrowLeft size={14} /> Kembali
@@ -102,7 +90,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         title={order.id}
         description={`${order.date} · ${order.customerName}`}
         actions={
-          <div className="flex flex-wrap gap-2">
+          <details className="order-detail-actions"><summary className="workspace-button">Tindakan pesanan</summary><div className="flex flex-wrap gap-2 py-3">
             {order.status === "DRAFT" && (
               <button
                 onClick={() => setProcessOpen(true)}
@@ -159,24 +147,15 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <button onClick={() => setDeleteOpen(true)} className="flex items-center gap-1 rounded-lg border border-destructive/30 px-3 py-1.5 text-[13px] text-destructive hover:bg-destructive/10">
               <Trash2 size={14} /> Hapus Pesanan
             </button>
-          </div>
+          </div></details>
         }
       />
 
-      {/* Status */}
-      <div className="mt-3">
-        <span className={`inline-block rounded-full px-2.5 py-1 text-[12px] font-medium ${statusColor[order.status]}`}>
-          {statusLabel[order.status]}
-        </span>
-        {order.archived && (
-          <span className="ml-2 inline-block rounded-full bg-foreground/[0.07] px-2.5 py-1 text-[12px] font-medium text-muted-foreground">
-            Diarsipkan
-          </span>
-        )}
-      </div>
-
+      <div className="my-5 flex flex-wrap items-center gap-3"><OrderStatus status={order.status} />{order.archived && <span className="text-xs text-muted-foreground">Diarsipkan</span>}<span className="text-xs text-muted-foreground">{order.items.reduce((sum,item)=>sum+item.quantity,0)} buku · {order.items.length} judul</span></div>
+      {order.status!=="CANCELLED" && <ol aria-label="Tahap pesanan" className="mb-6 grid grid-cols-3 gap-2">{["DRAFT","CHECKED_OUT","COMPLETED"].map((status,i)=>{const current=["DRAFT","CHECKED_OUT","COMPLETED"].indexOf(order.status);return <li key={status} aria-current={current===i?"step":undefined} className={"border-t-2 pt-3 text-xs "+(i<=current?"border-primary text-primary":"border-border text-muted-foreground")}><span className="mr-2 font-mono">0{i+1}</span>{["Draft","Diproses","Selesai"][i]}</li>;})}</ol>}
+      <div className="detail-grid">
       {/* Items */}
-      <div className="mt-4 rounded-xl border border-border bg-background">
+      <section className="workspace-panel"><PanelHeading title="Rincian buku" description="Harga dan jumlah pada saat pesanan dibuat." />
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
@@ -214,19 +193,19 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      {/* Totals */}
-      <div className="mt-3 ml-auto max-w-xs">
-        <div className="flex justify-between text-[13px] text-muted-foreground"><span>Subtotal</span><span>{formatRupiah(order.subtotal)}</span></div>
-        {order.discount > 0 && <div className="flex justify-between text-[13px] text-destructive"><span>Diskon</span><span>-{formatRupiah(order.discount)}</span></div>}
-        <div className="flex justify-between border-t border-border pt-1.5 text-[14px] font-semibold"><span className="text-foreground">Total</span><span className="text-foreground">{formatRupiah(order.total)}</span></div>
+      <aside className="detail-summary"><p className="text-xs text-muted-foreground">Total pesanan</p><p className="mt-2 break-words font-serif text-3xl">{formatRupiah(order.total)}</p><dl className="mt-5"><div><dt>Pelanggan</dt><dd>{order.customerName}</dd></div><div><dt>Tanggal pesanan</dt><dd>{order.date}</dd></div><div className="flex justify-between gap-3"><dt>Subtotal</dt><dd className="!mt-0">{formatRupiah(order.subtotal)}</dd></div><div className="flex justify-between gap-3"><dt>Diskon</dt><dd className="!mt-0 text-destructive">−{formatRupiah(order.discount)}</dd></div></dl>
+        {(order.status==="CHECKED_OUT" || order.status==="COMPLETED") && <button onClick={()=>printThermalNota(order)} className="workspace-button mt-5 w-full"><Printer size={16} />Cetak nota</button>}
+        {order.status==="DRAFT" && <button onClick={()=>setProcessOpen(true)} className="workspace-button workspace-button-primary mt-5 w-full"><ShoppingCart size={16} />Proses pesanan</button>}
+        {order.status==="CHECKED_OUT" && <button onClick={()=>setCompleteOpen(true)} className="workspace-button workspace-button-primary mt-3 w-full"><CheckCircle2 size={16} />Tandai selesai</button>}
+      </aside>
       </div>
 
       {/* Surat Jalan */}
       {(order.status === "CHECKED_OUT" || order.status === "COMPLETED") && (
-        <div className="mt-5 rounded-xl border border-border bg-background p-4">
-          <div className="mb-3 flex items-center justify-between">
+        <div className="workspace-panel mt-5 p-5">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-[13px] font-semibold text-foreground">Surat Izin Jalan</h3>
             <div className="flex gap-2">
               <button onClick={openSJEdit} className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[12px] text-foreground hover:bg-foreground/[0.04]">
@@ -237,7 +216,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               </button>
             </div>
           </div>
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-[12px]">
+          <dl className="grid grid-cols-1 gap-x-8 gap-y-5 text-sm sm:grid-cols-2 lg:grid-cols-3">
             <div><dt className="text-muted-foreground">No</dt><dd className="font-medium text-foreground">{suratJalan.no}</dd></div>
             <div><dt className="text-muted-foreground">Tanggal Kirim</dt><dd className="text-foreground">{suratJalan.tanggal || "-"}</dd></div>
             <div><dt className="text-muted-foreground">Pengirim</dt><dd className="text-foreground">{suratJalan.pengirim || "-"}</dd></div>
@@ -246,7 +225,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             {suratJalan.namaPengirim && <div><dt className="text-muted-foreground">Nama Pengirim</dt><dd className="text-foreground">{suratJalan.namaPengirim}</dd></div>}
             {suratJalan.kendaraan && <div><dt className="text-muted-foreground">No. Kendaraan</dt><dd className="text-foreground">{suratJalan.kendaraan}</dd></div>}
             {suratJalan.catatan && (
-              <div className="col-span-2"><dt className="text-muted-foreground">Catatan</dt><dd className="text-foreground">{suratJalan.catatan}</dd></div>
+              <div className="sm:col-span-2"><dt className="text-muted-foreground">Catatan</dt><dd className="text-foreground">{suratJalan.catatan}</dd></div>
             )}
           </dl>
         </div>
@@ -254,7 +233,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
       {/* Revisions */}
       {order.revisions.length > 0 && (
-        <div className="mt-5 rounded-xl border border-border bg-background p-4">
+        <div className="workspace-panel mt-5 p-5">
           <h3 className="mb-2 text-[13px] font-semibold text-foreground">Riwayat Revisi</h3>
           {order.revisions.map((rev) => (
             <div key={rev.id} className="border-t border-border/50 pt-2 text-[12px]">

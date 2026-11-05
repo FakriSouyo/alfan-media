@@ -1,4 +1,3 @@
-import type { NextRequest } from "next/server";
 import { runLlmTurn } from "@/lib/agent/llm/orchestrator";
 import { resolveLlmConfig } from "@/lib/agent/llm/client";
 import { sanitizeContext } from "@/lib/agent/context";
@@ -28,7 +27,7 @@ const MAX_MESSAGE_LENGTH = 4000;
  *   - Kegagalan LLM/provider BUKAN 5xx: selalu event `error` terstruktur
  *     di dalam stream SSE (200). 5xx hanya untuk kegagalan di luar handler.
  */
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const auth = await requireAgentUser();
     if (!auth.ok) {

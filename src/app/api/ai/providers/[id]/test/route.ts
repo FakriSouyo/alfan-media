@@ -1,4 +1,4 @@
-import type { NextRequest } from "next/server";
+import type { RouteContext } from "@/lib/route-context";
 import { requireAdmin } from "@/lib/agent/ai-config";
 import { fetchProviderModels, LlmError } from "@/lib/agent/llm/client";
 import type { AiProviderRow } from "@/lib/agent/llm/types";
@@ -23,8 +23,8 @@ export const runtime = "nodejs";
  *   - api_key TIDAK PERNAH muncul di respons atau log
  */
 export async function POST(
-  _req: NextRequest,
-  ctx: RouteContext<"/api/ai/providers/[id]/test">,
+  _req: Request,
+  ctx: RouteContext,
 ) {
   const { id } = await ctx.params;
   if (!isUuid(id)) return Response.json({ error: "ID tidak valid." }, { status: 400 });

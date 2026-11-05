@@ -1,5 +1,2 @@
-import { redirect } from "next/navigation";
-
-export default function SalesPage() {
-  redirect("/sales/new");
-}
+import { Navigate } from "react-router-dom";
+export default function Page() { return <Navigate to="/sales/new" replace />; }

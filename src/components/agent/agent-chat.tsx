@@ -1,6 +1,5 @@
-"use client";
 
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import {
   ArrowRight,
   Bot,
@@ -12,7 +11,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import Link from "next/link";
+import { Link } from "@/lib/navigation";
 import {
   memo,
   useCallback,
@@ -607,15 +606,15 @@ export function AgentChat() {
   // Tinggi kolom chat = viewport dikurangi header app (h-12) — isinya
   // scroll internal, jadi layout app (sidebar + header) tetap utuh.
   return (
-    <div className="flex h-[calc(100svh-3rem)] min-h-0 flex-col">
+    <div className="agent-workspace flex h-[calc(100svh-3.5rem)] min-h-0 flex-col">
       {/* Header kolom chat (ringan) */}
-      <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-4">
+      <header className="flex min-h-20 shrink-0 items-center justify-between gap-3 border-b border-border px-5 sm:px-8">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/12 text-primary">
+          <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/12 text-primary">
             <Sparkles className="size-3.5" />
           </div>
           <div className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate text-sm font-semibold">AI Assistant</span>
+            <span className="truncate font-serif text-xl">Asisten toko</span>
             <span className="hidden truncate text-[11px] text-muted-foreground sm:inline">
               Alfan Media
             </span>
@@ -628,7 +627,7 @@ export function AgentChat() {
             disabled={messages.length === 0}
             title="Lupakan riwayat chat"
             aria-label="Lupakan riwayat chat"
-            className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+            className="flex size-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
           >
             <Trash2 className="size-3.5" />
           </button>
@@ -673,7 +672,7 @@ export function AgentChat() {
         contentClassName="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-5 px-4 py-5"
       >
           {isEmpty ? (
-            <EmptyState onPick={(p) => void send(p)} />
+            <EmptyState onPick={setInput} />
           ) : (
             <AnimatePresence initial={false}>
               {messages.map((message) => (
@@ -965,42 +964,12 @@ const MessageRow = memo(function MessageRow({
 // ─── Empty state ─────────────────────────────────────────────────────────────
 
 function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 py-10 text-center">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.92, y: 6 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.25 }}
-        className="grid size-12 place-items-center rounded-2xl bg-primary/12 text-primary"
-      >
-        <Sparkles className="size-6" />
-      </motion.div>
-      <div className="space-y-1">
-        <h1 className="text-lg font-semibold">Halo, saya asisten AI Anda</h1>
-        <p className="mx-auto max-w-sm text-sm text-muted-foreground">
-          Tanyakan penjualan, cek stok, kelola produk, atau minta laporan — semua
-          langsung dari data toko Anda.
-        </p>
-      </div>
-      <div className="grid w-full max-w-md grid-cols-1 gap-2 sm:grid-cols-2">
-        {QUICK_PROMPTS.map((prompt, i) => (
-          <motion.button
-            key={prompt}
-            type="button"
-            onClick={() => onPick(prompt)}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.05 + i * 0.05, duration: 0.2 }}
-            whileTap={{ scale: 0.98 }}
-            className={cn(
-              "rounded-xl border border-border bg-card/60 px-3.5 py-2.5 text-left text-sm text-foreground/90",
-              "transition-colors hover:border-ring hover:bg-muted",
-            )}
-          >
-            {prompt}
-          </motion.button>
-        ))}
-      </div>
-    </div>
-  );
+  const icons = [ChartColumn, PackageSearch, ChartColumn, BookPlus];
+  return <div className="agent-intro">
+    <p className="mb-5 flex items-center gap-2 text-[11px] uppercase tracking-[.16em] text-primary"><Sparkles size={15} />Alfan Media · Asisten toko</p>
+    <h1>Ada yang bisa dibantu<br className="hidden sm:block" /> untuk toko hari ini?</h1>
+    <p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground">Lihat penjualan, telusuri stok, atau siapkan pekerjaan berikutnya.</p>
+    <div className="agent-prompts">{QUICK_PROMPTS.map((prompt,i)=>{const Icon=icons[i];return <button key={prompt} type="button" onClick={()=>onPick(prompt)}><Icon size={19} className="mt-0.5 shrink-0 text-primary" /><span className="min-w-0 flex-1 leading-relaxed">{prompt}</span><ArrowRight size={15} className="mt-1 shrink-0 text-muted-foreground" /></button>;})}</div>
+    <p className="mt-4 text-xs text-muted-foreground">Pilih saran untuk mengisi pesan, lalu kirim saat siap.</p>
+  </div>;
 }

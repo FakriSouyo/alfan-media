@@ -1,4 +1,3 @@
-"use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Renderers for the agent's structured result blocks.
@@ -6,7 +5,7 @@
 // server module — and no Supabase types — leak into the client bundle).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import Link from "next/link";
+import { Link } from "@/lib/navigation";
 import {
   ArrowRight,
   CheckCircle2,
