@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "echo \"Vercel only redirects to Cloudflare Workers; nothing to install\"",
+  "buildCommand": "echo \"Vercel only redirects to Cloudflare Workers; nothing to build\"",
+  "outputDirectory": "vercel-redirect",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "destination": "https://tokobuku-alfan-media.freebuff-app.workers.dev/:path*",
+      "permanent": false
+    }
+  ]
+}
