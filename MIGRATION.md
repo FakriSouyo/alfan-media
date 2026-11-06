@@ -2,7 +2,7 @@
 
 Stack aplikasi sekarang: React 19 + Vite + React Router; API Hono di Cloudflare Workers; Cloudflare D1; Cloudflare R2; Better Auth dengan sesi cookie HttpOnly. Next.js tidak lagi menjadi dependency atau runtime aplikasi. Paket Supabase hanya tersisa sebagai tipe TypeScript untuk kontrak sementara dan test lama, di devDependencies. Semua akses runtime memakai API Worker yang sama origin.
 
-Alamat deployment: https://tokobuku-alfan-media.freebuff-app.workers.dev
+Alamat produksi: https://alfanmedia.my.id (custom domain Workers). Alamat `workers.dev` lama tetap aktif dan diizinkan untuk login; domain Vercel lama mengarahkan ke alamat produksi.
 
 ## Data produksi
 
