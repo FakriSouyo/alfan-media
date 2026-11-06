@@ -7,7 +7,7 @@
   "redirects": [
     {
       "source": "/:path*",
-      "destination": "https://tokobuku-alfan-media.freebuff-app.workers.dev/:path*",
+      "destination": "https://alfanmedia.my.id/:path*",
       "permanent": false
     }
   ]

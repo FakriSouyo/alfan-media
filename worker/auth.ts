@@ -7,6 +7,8 @@ export function createAuth(env: Env) {
     database: env.DB,
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
+    // The workers.dev address stays usable for old bookmarks alongside the custom domain.
+    trustedOrigins: [new URL(env.BETTER_AUTH_URL).origin, "https://tokobuku-alfan-media.freebuff-app.workers.dev"],
     verification: { storeIdentifier:"hashed" },
     advanced: { ipAddress:{ ipAddressHeaders:["cf-connecting-ip"] } },
     emailAndPassword: {
